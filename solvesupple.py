@@ -49,6 +49,33 @@ def min_timestep():
     cc.totaltime += mintime
     ot.min_timestep_output()
 
+def IM_wall():
+    """设置内壁面假想网格边界条件,使用基于镜像速度的方法"""
+
+    # 分配假想网格的空间,位于`CellList`的尾部`1~IM`行.
+    for im in range(1, cc.IM + 1):
+        ghost_row = [[]]                       # j=0 占位
+        for j in range(1, cc.j_total + 1):
+            ghost_row.append(cc.cell_class((cc.i_total + im - 1, j)))
+        cc.CellList.append(ghost_row)
+
+    for j in range(1, cc.j_total + 1):
+        for im in range(1, cc.IM + 1):
+            # 标量将直接被复制过去
+            cc.CellList[cc.i_total + im - 1][j].rho = cc.CellList[1][j].rho
+            cc.CellList[cc.i_total + im - 1][j].p = cc.CellList[1][j].p
+            cc.CellList[cc.i_total + im - 1][j].T = cc.CellList[1][j].T
+            cc.CellList[cc.i_total + im - 1][j].E = cc.CellList[1][j].E
+            cc.CellList[cc.i_total + im - 1][j].H = cc.CellList[1][j].H
+            cc.CellList[cc.i_total + im - 1][j].c = cc.CellList[1][j].c
+            
+            # 速度和湍流函数将被取相反数
+            cc.CellList[cc.i_total + im - 1][j].u = - cc.CellList[im][j].u
+            cc.CellList[cc.i_total + im - 1][j].v = - cc.CellList[im][j].v
+            cc.CellList[cc.i_total + im - 1][j].miubl = -cc.CellList[im][j].miubl
+            cc.CellList[cc.i_total + im - 1][j].ma = (math.sqrt(cc.CellList[im][j].u**2 + 
+                                                    cc.CellList[im][j].v**2) / cc.CellList[1][j].c)
+
 # def res_and_ustep():
 #     """通量推进和残差计算,残差依靠`density_table`,同时推进守恒通量"""
 #     for i in range(1, cc.i_total, 1):

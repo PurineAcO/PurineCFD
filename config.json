@@ -21,6 +21,8 @@
         "Ma": 0.2,
         "_Ma_comment": "来流马赫数",
         "CFL": 0.8,
-        "_CFL_comment": "Courant 数"
+        "_CFL_comment": "Courant 数",
+        "IM": 3,
+        "_IM_comment": "假想网格层数 (ghost cell layers)"
     }
 }

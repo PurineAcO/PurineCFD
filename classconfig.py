@@ -20,6 +20,7 @@ c0    = _cfg['physics']['c0']
 AOA   = _cfg['simulation']['AOA']
 Ma    = _cfg['simulation']['Ma']
 CFL   = _cfg['simulation']['CFL']
+IM    = _cfg['simulation']['IM']    # ghost cell layers
 
 # area for the global variables 
 i_total = 0
@@ -73,6 +74,7 @@ class face_class:
         self.nj = 0        # normal direction tau
         self.mx = 0        # middle point x
         self.my = 0        # middle point y
+
 
 # some temp variables
 

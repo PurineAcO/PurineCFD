@@ -47,10 +47,9 @@ main.py
 │   └─ output.initialize_output("output.txt")
 │
 ├─ ss.formvars_main()
-│   └─ formvars() × 所有单元 → U[1..5]
 │
 └─ ss.min_timestep()
-    └─ 谱半径公式 → CellList[].localdt, 返回全局 min(dt)
+
 ```
 
 ---
@@ -144,11 +143,11 @@ main.py
 
 1. $T = T_0 / (1 + \frac{\gamma-1}{2}Ma^2)$
 2. $p = P_0 (T/T_0)^{\gamma/(\gamma-1)}$
-3. $c = \sqrt{\gamma RT}$,$\rho = p/RT$
+3. $c = \sqrt{\gamma RT},\rho = \frac{p}{RT}$
 4. $u = c \cdot Ma \cdot \cos\alpha,v = c \cdot Ma \cdot \sin\alpha$
-5. $E = p/[\rho(\gamma-1)] + (u^2+v^2)/2$,$H = E + p/\rho$
-6. $\mu = \mu_0 (T/T_0)^{1.5} (T_0+T_s)/(T+T_s)$
-7. $\mu_{bl} = 0.1\mu/\rho$
+5. $E = p/[\rho(\gamma-1)] + (u^2+v^2)/2,H = E + \frac{p}{\rho}$
+6. $\mu = \mu_0 (T/T_0)^{1.5} \frac{T_0+T_s}{T+T_s}$
+7. $\mu_{bl} = 0.1\frac{\mu}{\rho}$
 
 ### `initialization_main()`
 
@@ -170,7 +169,7 @@ main.py
   - `U[1]=ρ`, `U[2]=ρu`, `U[3]=ρv`, `U[4]=ρE`, `U[5]=ρ·μ_bl`
 - **`formvars_main()`**:遍历所有 CellList,逐单元调用 `formvars()`
 - **`min_timestep()`**:计算各单元当地时间步长,返回全局最小值
-  - 基于谱半径近似: $\Delta t = \text{CFL} \cdot V \,/\, \sum (|\mathbf{u}\cdot\mathbf{n}| + c|\mathbf{n}|)$
+  - 基于谱半径近似: $\Delta t = \frac{\text{CFL} \cdot V}{ \sum (|\mathbf{u}\cdot\mathbf{n}| + c|\mathbf{n}|)}$
   - 面法向取相邻两面的平均值,周向 `j=j_total` 时回绕到 `1`
 - **`res_and_ustep()`**:保存密度到 `density_table`,备份 `U → U_former`(暂注释)
 
