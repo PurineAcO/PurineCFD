@@ -136,3 +136,12 @@ def initialize_output(debugoutput=cc.outputfile):
         f.write(f"cell kinematic viscosity: {cell_one.miubl}\n")
         f.write("All the cell is initialized as the same value.\n")
         f.write("-------------------------------------\n")
+
+def formvars_main_output(debugoutput=cc.outputfile):
+    """输出守恒量计算结果"""
+    with open(debugoutput, "a") as f:
+        f.write("formvars_main is completed.\n")
+        cell_one = cc.CellList[1][1]
+        f.write(f"for example,{cell_one.index}\n")
+        f.write(f"cell U: {cell_one.U}\n")
+        f.write("-------------------------------------\n")

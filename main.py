@@ -10,4 +10,4 @@ geo.geometry_main("output.txt")
 
 ini.initialization_main()
 
-# ss.formvars_main()
+ss.formvars_main()
