@@ -19,6 +19,8 @@
         "AOA": 0,
         "_AOA_comment": "攻角 °",
         "Ma": 0.2,
-        "_Ma_comment": "来流马赫数"
+        "_Ma_comment": "来流马赫数",
+        "CFL": 0.8,
+        "_CFL_comment": "Courant 数"
     }
 }

@@ -65,49 +65,43 @@ def calc_cell_center():
             cc.CellList[i][j].y = b / (6 * signed_area)
 
 def calc_face_direction_tau():
-    """计算周向网格的边的法向量(外法向,单位化),存储在`Facelist_tau` 中."""
+    """计算周向网格的边的法向量(外法向),存储在`Facelist_tau` 中."""
     for i in range(1, cc.i_total + 1):
         circleface = [[]]
         for j in range(1, cc.j_total):
             dx = cc.NodeList[i][j+1].x - cc.NodeList[i][j].x
             dy = cc.NodeList[i][j+1].y - cc.NodeList[i][j].y
-            mag = np.sqrt(dx**2 + dy**2)
             tempface_tau = cc.face_class((i, j))
-            if mag > 1e-30:
-                tempface_tau.ni = dy / mag
-                tempface_tau.nj = -dx / mag
-                tempface_tau.mx = (cc.NodeList[i][j].x + cc.NodeList[i][j+1].x) / 2
-                tempface_tau.my = (cc.NodeList[i][j].y + cc.NodeList[i][j+1].y) / 2
+            tempface_tau.ni = dy
+            tempface_tau.nj = -dx
+            tempface_tau.mx = (cc.NodeList[i][j].x + cc.NodeList[i][j+1].x) / 2
+            tempface_tau.my = (cc.NodeList[i][j].y + cc.NodeList[i][j+1].y) / 2
             circleface.append(tempface_tau)
 
         # wrap-around: j = j_total → j+1 = 1
         dx = cc.NodeList[i][1].x - cc.NodeList[i][cc.j_total].x
         dy = cc.NodeList[i][1].y - cc.NodeList[i][cc.j_total].y
-        mag = np.sqrt(dx**2 + dy**2)
         tempface_tau = cc.face_class((i, cc.j_total))
-        if mag > 1e-30:
-            tempface_tau.ni = dy / mag
-            tempface_tau.nj = -dx / mag
-            tempface_tau.mx = (cc.NodeList[i][cc.j_total].x + cc.NodeList[i][1].x) / 2
-            tempface_tau.my = (cc.NodeList[i][cc.j_total].y + cc.NodeList[i][1].y) / 2
+        tempface_tau.ni = dy
+        tempface_tau.nj = -dx
+        tempface_tau.mx = (cc.NodeList[i][cc.j_total].x + cc.NodeList[i][1].x) / 2
+        tempface_tau.my = (cc.NodeList[i][cc.j_total].y + cc.NodeList[i][1].y) / 2
         circleface.append(tempface_tau)
 
         cc.Facelist_tau.append(circleface)
 
 def calc_face_direction_n():
-    """计算径向网格的边的法向量(外法向,单位化),存储在`FaceList_n` 中."""
+    """计算径向网格的边的法向量(外法向),存储在`FaceList_n` 中."""
     for j in range(1, cc.j_total + 1):
         circleface = [[]]
         for i in range(1, cc.i_total):
             dx = cc.NodeList[i+1][j].x - cc.NodeList[i][j].x
             dy = cc.NodeList[i+1][j].y - cc.NodeList[i][j].y
-            mag = np.sqrt(dx**2 + dy**2)
             tempface_n = cc.face_class((i, j))
-            if mag > 1e-30:
-                tempface_n.ni = -dy / mag
-                tempface_n.nj = dx / mag
-                tempface_n.mx = (cc.NodeList[i][j].x + cc.NodeList[i+1][j].x) / 2
-                tempface_n.my = (cc.NodeList[i][j].y + cc.NodeList[i+1][j].y) / 2
+            tempface_n.ni = -dy
+            tempface_n.nj = dx
+            tempface_n.mx = (cc.NodeList[i][j].x + cc.NodeList[i+1][j].x) / 2
+            tempface_n.my = (cc.NodeList[i][j].y + cc.NodeList[i+1][j].y) / 2
             circleface.append(tempface_n)
 
         cc.FaceList_n.append(circleface)

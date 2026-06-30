@@ -115,33 +115,40 @@ def mesh_visualization(savepath=None, show_centers=True, show_tau=True, show_n=T
         plt.show()
     plt.close(fig)
 
+
+
 def initialize_output(debugoutput=cc.outputfile):
-    """初始化输出文件"""
+    """标准初始化的输出"""
     with open(debugoutput, "a") as f:
+        cellexample = cc.CellList[1][1] # 可调节监视的网格单元
         f.write("standard initialization is completed.\n")
-        cell_one = cc.CellList[1][1]
-        f.write(f"for example,{cell_one.index}\n")
-        f.write(f"cell center: ({cell_one.x}, {cell_one.y})\n")
-        f.write(f"cell volume: {cell_one.vol}\n")
-        f.write(f"most near wall distance: {cell_one.sad}\n")
-        f.write(f"cell density: {cell_one.rho}\n")
-        f.write(f"cell pressure: {cell_one.p}\n")
-        f.write(f"cell temperature: {cell_one.T}\n")
-        f.write(f"cell velocity: ({cell_one.u}, {cell_one.v})\n")
-        f.write(f"cell energy: {cell_one.E}\n")
-        f.write(f"cell enthalpy: {cell_one.H}\n")
-        f.write(f"cell sound speed: {cell_one.c}\n")
-        f.write(f"cell Mach number: {cell_one.ma}\n")
-        f.write(f"cell dynamic viscosity: {cell_one.miu}\n")
-        f.write(f"cell kinematic viscosity: {cell_one.miubl}\n")
+        f.write(f"for example,{cellexample.index}\n")
+        f.write(f"cell center: ({cellexample.x}, {cellexample.y})\n")
+        f.write(f"cell volume: {cellexample.vol}\n")
+        f.write(f"most near wall distance: {cellexample.sad}\n")
+        f.write(f"cell density: {cellexample.rho}\n")
+        f.write(f"cell pressure: {cellexample.p}\n")
+        f.write(f"cell temperature: {cellexample.T}\n")
+        f.write(f"cell velocity: ({cellexample.u}, {cellexample.v})\n")
+        f.write(f"cell energy: {cellexample.E}\n")
+        f.write(f"cell enthalpy: {cellexample.H}\n")
+        f.write(f"cell sound speed: {cellexample.c}\n")
+        f.write(f"cell Mach number: {cellexample.ma}\n")
+        f.write(f"cell dynamic viscosity: {cellexample.miu}\n")
+        f.write(f"cell kinematic viscosity: {cellexample.miubl}\n")
         f.write("All the cell is initialized as the same value.\n")
+        f.write(f"All the next is about cell {cellexample.index},you can change the index.\n")
         f.write("-------------------------------------\n")
 
 def formvars_main_output(debugoutput=cc.outputfile):
     """输出守恒量计算结果"""
     with open(debugoutput, "a") as f:
-        f.write("formvars_main is completed.\n")
-        cell_one = cc.CellList[1][1]
-        f.write(f"for example,{cell_one.index}\n")
-        f.write(f"cell U: {cell_one.U}\n")
-        f.write("-------------------------------------\n")
+        cellexample = cc.CellList[1][1] # 可调节监视的网格单元
+        f.write(f"cell U: {cellexample.U}\n")
+
+def min_timestep_output(debugoutput=cc.outputfile):
+    """输出最小时间步长"""
+    with open(debugoutput, "a") as f:
+        cellexample = cc.CellList[1][1] # 可调节监视的网格单元
+        f.write(f"global dt: {cellexample.dt:.6e}\n")
+        f.write(f"totaltime: {cc.totaltime:.6e}\n")

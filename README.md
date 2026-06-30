@@ -42,9 +42,15 @@ main.py
 │   ├─ calc_most_near_walldistance()
 │   └─ output.geometry_debug("output.txt")
 │
-└─ ini.initialization_main()
-    ├─ initialization(T0, AOA, Ma, P0)
-    └─ output.initialize_output("output.txt")
+├─ ini.initialization_main()
+│   ├─ initialization(T0, AOA, Ma, P0)
+│   └─ output.initialize_output("output.txt")
+│
+├─ ss.formvars_main()
+│   └─ formvars() × 所有单元 → U[1..5]
+│
+└─ ss.min_timestep()
+    └─ 谱半径公式 → CellList[].localdt, 返回全局 min(dt)
 ```
 
 ---
@@ -69,6 +75,7 @@ main.py
 |----|--------|------|
 | `AOA` | 0 | 攻角 ° |
 | `Ma` | 0.2 | 马赫数 |
+| `CFL` | 0.8 | Courant 数 |
 
 ### 1.3 全局数据结构
 
@@ -84,8 +91,8 @@ main.py
 ### 1.4 数据类
 
 - **`node_class`**:`x, y`(节点坐标)
-- **`cell_class`**:`x, y, vol`(中心+面积);`rho, p, T, u, v, E, H, c, ma`(原始变量);`miu, miubl`(粘度);`sad`(壁面距离);`U[6], U_former[6]`(守恒量)
-- **`face_class`**:`ni, nj`(单位法向量),`mx, my`(中点)
+- **`cell_class`**:`x, y, vol`(中心+面积);`rho, p, T, u, v, E, H, c, ma`(原始变量);`miu, miubl`(粘度);`sad`(壁面距离);`localdt`(当地时间步长);`U[6], U_former[6]`(守恒量)
+- **`face_class`**:`ni, nj`(法向量,模长=边长),`mx, my`(中点)
 
 ---
 
@@ -109,7 +116,7 @@ main.py
 
 ### 3.1 `calc_cell_vol()`
 
-四边形对角线叉积求面积:$V = 0.5 \cdot |(P_{i+1,j+1}-P_{i,j}) \times (P_{i+1,j}-P_{i,j+1})|$.使用 2D 标量叉积 `x1*y2 - y1*x2`(兼容 NumPy 2.x).`j=j_total` 时 `j+1` 回绕到 `1`.
+四边形对角线叉积求面积:$V = 0.5 \cdot | (P_{i+1,j+1}-P_{i,j}) \times (P_{i+1,j}-P_{i,j+1}) |$.使用 2D 标量叉积 `x1*y2 - y1*x2`(兼容 NumPy 2.x).`j=j_total` 时 `j+1` 回绕到 `1`.
 
 ### 3.2 `calc_cell_center()`
 
@@ -117,11 +124,11 @@ main.py
 
 ### 3.3 `calc_face_direction_tau()`
 
-周向边法向量:旋转切向量 90°,指向**径向外侧**,单位化.`j=j_total` 时回绕.
+周向边法向量:旋转切向量 90°,指向**径向外侧**(模长=边长).`j=j_total` 时回绕.
 
 ### 3.4 `calc_face_direction_n()`
 
-径向边法向量:指向**逆时针切向**,单位化.索引顺序为 `[j][i]`.
+径向边法向量:指向**逆时针切向**(模长=边长).索引顺序为 `[j][i]`.
 
 ### 3.5 `calc_most_near_walldistance()`
 
@@ -138,7 +145,7 @@ main.py
 1. $T = T_0 / (1 + \frac{\gamma-1}{2}Ma^2)$
 2. $p = P_0 (T/T_0)^{\gamma/(\gamma-1)}$
 3. $c = \sqrt{\gamma RT}$,$\rho = p/RT$
-4. $u = c \cdot Ma \cdot \cos\alpha$,$v = c \cdot Ma \cdot \sin\alpha$
+4. $u = c \cdot Ma \cdot \cos\alpha,v = c \cdot Ma \cdot \sin\alpha$
 5. $E = p/[\rho(\gamma-1)] + (u^2+v^2)/2$,$H = E + p/\rho$
 6. $\mu = \mu_0 (T/T_0)^{1.5} (T_0+T_s)/(T+T_s)$
 7. $\mu_{bl} = 0.1\mu/\rho$
@@ -162,7 +169,10 @@ main.py
 - **`formvars(cell)`**:原始变量 → 守恒量 `U[1..5]`
   - `U[1]=ρ`, `U[2]=ρu`, `U[3]=ρv`, `U[4]=ρE`, `U[5]=ρ·μ_bl`
 - **`formvars_main()`**:遍历所有 CellList,逐单元调用 `formvars()`
-- **`res_and_ustep()`**:保存密度到 `density_table`,备份 `U → U_former`
+- **`min_timestep()`**:计算各单元当地时间步长,返回全局最小值
+  - 基于谱半径近似: $\Delta t = \text{CFL} \cdot V \,/\, \sum (|\mathbf{u}\cdot\mathbf{n}| + c|\mathbf{n}|)$
+  - 面法向取相邻两面的平均值,周向 `j=j_total` 时回绕到 `1`
+- **`res_and_ustep()`**:保存密度到 `density_table`,备份 `U → U_former`(暂注释)
 
 ---
 

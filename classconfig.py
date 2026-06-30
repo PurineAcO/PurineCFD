@@ -19,6 +19,7 @@ c0    = _cfg['physics']['c0']
 # 模拟状态
 AOA   = _cfg['simulation']['AOA']
 Ma    = _cfg['simulation']['Ma']
+CFL   = _cfg['simulation']['CFL']
 
 # area for the global variables 
 i_total = 0
@@ -29,9 +30,11 @@ CellList = [[]]
 FaceList_n = [[]]
 Facelist_tau = [[]]
 
+# global accumulated simulation time
+totaltime = 0.0
+
 # output file
 outputfile = "output.txt"
-
 
 #area for the class definition
 class node_class:
@@ -58,6 +61,8 @@ class cell_class:
         self.ma = 0
         self.miu = 0
         self.miubl = 0
+        self.localdt = 0    # locally computed time step (per-cell)
+        self.dt = 0         # actual time step used for advancement (= global min)
         self.U = [0,0,0,0,0,0] # conservative variables
         self.U_former = [0,0,0,0,0,0] # former conservative variables
 
