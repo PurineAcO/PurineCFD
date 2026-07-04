@@ -67,6 +67,18 @@ class cell_class:
         self.U = [0,0,0,0,0,0] # conservative variables
         self.U_former = [0,0,0,0,0,0] # former conservative variables
 
+    def copy_flow_fields(self, src):
+        """将 src 的流场量复制到 self, 不覆盖几何属性 (index/x/y/vol/sad)."""
+        self.rho   = src.rho
+        self.p     = src.p
+        self.E     = src.E
+        self.T     = src.T
+        self.H     = src.H
+        self.u     = src.u
+        self.v     = src.v
+        self.ma    = src.ma
+        self.miubl = src.miubl
+
 class face_class:
     def __init__(self,index):
         self.index = index

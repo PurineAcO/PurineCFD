@@ -27,7 +27,7 @@ def min_timestep():
     for j in range(1, cc.j_total + 1):
         jp1 = j + 1 if j < cc.j_total else 1          # 周向回绕
         for i in range(1, cc.i_total):
-            cell = cc.CellList[i][j]
+            cell : cc.cell_class= cc.CellList[i][j]
             A = 0.5 * (cc.Facelist_tau[i][j].ni+ cc.Facelist_tau[i+1][j].ni)
             B = 0.5 * (cc.Facelist_tau[i][j].nj+ cc.Facelist_tau[i+1][j].nj)
             C = 0.5 * (cc.FaceList_n[j][i].ni+ cc.FaceList_n[jp1][i].ni)
@@ -52,29 +52,60 @@ def min_timestep():
 def IM_wall():
     """设置内壁面假想网格边界条件,使用基于镜像速度的方法"""
 
-    # 分配假想网格的空间,位于`CellList`的尾部`1~IM`行.
     for im in range(1, cc.IM + 1):
         ghost_row = [[]]                       # j=0 占位
         for j in range(1, cc.j_total + 1):
-            ghost_row.append(cc.cell_class((cc.i_total + im - 1, j)))
+            gcell : cc.cell_class = cc.cell_class((cc.i_total + im - 1, j))
+
+            # 标量: 从壁面直接复制
+            gcell.rho = cc.CellList[1][j].rho
+            gcell.p   = cc.CellList[1][j].p
+            gcell.T   = cc.CellList[1][j].T
+            gcell.E   = cc.CellList[1][j].E
+            gcell.H   = cc.CellList[1][j].H
+            gcell.c   = cc.CellList[1][j].c
+
+            # 速度 / 湍流粘度: 取对应内层的相反数 (镜像反射)
+            gcell.u     = -cc.CellList[im][j].u
+            gcell.v     = -cc.CellList[im][j].v
+            gcell.miubl = -cc.CellList[im][j].miubl
+            gcell.ma = (math.sqrt(cc.CellList[im][j].u ** 2 +
+                                  cc.CellList[im][j].v ** 2) / cc.CellList[1][j].c)
+
+            ghost_row.append(gcell)
         cc.CellList.append(ghost_row)
 
-    for j in range(1, cc.j_total + 1):
+
+def IM_far():
+    """设置压力远场假想网格边界条件"""
+
+    for im in range(1, cc.IM + 1):
+        ghost_row = [[]]             # j=0 占位
+        for j in range(1, cc.j_total + 1):
+            gcell = cc.cell_class((cc.i_total + im - 1, j))
+            gcell.copy_flow_fields(cc.CellList[cc.i_total - 1][j])
+            ghost_row.append(gcell)
+        cc.CellList.append(ghost_row)
+
+
+def IM_LR():
+    """设置 O 型网格切割线两侧的周期假想网格 (j 方向周期边界)
+
+    左侧 ghost ← 右侧物理端 (j = j_total, j_total-1, ...)
+    右侧 ghost ← 左侧物理端 (j = 1, 2, ...)"""
+
+    for i in range(1, cc.i_total):
+        # ── 左侧假想网格 ──
         for im in range(1, cc.IM + 1):
-            # 标量将直接被复制过去
-            cc.CellList[cc.i_total + im - 1][j].rho = cc.CellList[1][j].rho
-            cc.CellList[cc.i_total + im - 1][j].p = cc.CellList[1][j].p
-            cc.CellList[cc.i_total + im - 1][j].T = cc.CellList[1][j].T
-            cc.CellList[cc.i_total + im - 1][j].E = cc.CellList[1][j].E
-            cc.CellList[cc.i_total + im - 1][j].H = cc.CellList[1][j].H
-            cc.CellList[cc.i_total + im - 1][j].c = cc.CellList[1][j].c
-            
-            # 速度和湍流函数将被取相反数
-            cc.CellList[cc.i_total + im - 1][j].u = - cc.CellList[im][j].u
-            cc.CellList[cc.i_total + im - 1][j].v = - cc.CellList[im][j].v
-            cc.CellList[cc.i_total + im - 1][j].miubl = -cc.CellList[im][j].miubl
-            cc.CellList[cc.i_total + im - 1][j].ma = (math.sqrt(cc.CellList[im][j].u**2 + 
-                                                    cc.CellList[im][j].v**2) / cc.CellList[1][j].c)
+            gcell = cc.cell_class((i, cc.j_total + im))
+            gcell.copy_flow_fields(cc.CellList[i][cc.j_total - im + 1])
+            cc.CellList[i].append(gcell)
+
+        # ── 右侧假想网格 ──
+        for im in range(1, cc.IM + 1):
+            gcell = cc.cell_class((i, cc.j_total + cc.IM + im))
+            gcell.copy_flow_fields(cc.CellList[i][im])
+            cc.CellList[i].append(gcell)
 
 # def res_and_ustep():
 #     """通量推进和残差计算,残差依靠`density_table`,同时推进守恒通量"""
