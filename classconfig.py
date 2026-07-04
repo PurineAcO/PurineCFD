@@ -79,6 +79,14 @@ class cell_class:
         self.ma    = src.ma
         self.miubl = src.miubl
 
+    def formvars(self):
+        """根据原始变量计算守恒量 U[1..5]."""
+        self.U[1] = self.rho
+        self.U[2] = self.rho * self.u
+        self.U[3] = self.rho * self.v
+        self.U[4] = self.rho * self.E
+        self.U[5] = self.rho * self.miubl
+
 class face_class:
     def __init__(self,index):
         self.index = index

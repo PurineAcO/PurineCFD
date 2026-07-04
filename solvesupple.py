@@ -2,19 +2,11 @@ import classconfig as cc
 import output as ot
 import math
 
-def formvars(cell: cc.cell_class):
-    """计算每个单元的守恒量,并存储在`CellList` 中."""
-    cell.U[1] = cell.rho
-    cell.U[2] = cell.rho * cell.u
-    cell.U[3] = cell.rho * cell.v
-    cell.U[4] = cell.rho * cell.E
-    cell.U[5] = cell.rho * cell.miubl
-
 def formvars_main():
     """执行守恒量计算,并将结果存储在`CellList` 中."""
     for i in range(1, cc.i_total,1):  # 一定要注意i的范围是什么
         for j in range(1,cc.j_total+1,1):
-            formvars(cc.CellList[i][j])
+            cc.CellList[i][j].formvars()
     ot.formvars_main_output()
 
 def min_timestep():
@@ -71,7 +63,7 @@ def IM_wall():
             gcell.miubl = -cc.CellList[im][j].miubl
             gcell.ma = (math.sqrt(cc.CellList[im][j].u ** 2 +
                                   cc.CellList[im][j].v ** 2) / cc.CellList[1][j].c)
-
+            gcell.formvars()
             ghost_row.append(gcell)
         cc.CellList.append(ghost_row)
 
@@ -84,6 +76,7 @@ def IM_far():
         for j in range(1, cc.j_total + 1):
             gcell = cc.cell_class((cc.i_total + im - 1, j))
             gcell.copy_flow_fields(cc.CellList[cc.i_total - 1][j])
+            gcell.formvars()
             ghost_row.append(gcell)
         cc.CellList.append(ghost_row)
 
@@ -99,13 +92,20 @@ def IM_LR():
         for im in range(1, cc.IM + 1):
             gcell = cc.cell_class((i, cc.j_total + im))
             gcell.copy_flow_fields(cc.CellList[i][cc.j_total - im + 1])
+            gcell.formvars()
             cc.CellList[i].append(gcell)
 
         # ── 右侧假想网格 ──
         for im in range(1, cc.IM + 1):
             gcell = cc.cell_class((i, cc.j_total + cc.IM + im))
             gcell.copy_flow_fields(cc.CellList[i][im])
+            gcell.formvars()
             cc.CellList[i].append(gcell)
+
+def formIM():
+    IM_wall()
+    IM_far()
+    IM_LR()
 
 # def res_and_ustep():
 #     """通量推进和残差计算,残差依靠`density_table`,同时推进守恒通量"""

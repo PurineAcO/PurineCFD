@@ -29,6 +29,7 @@
   - [6.3 `IM_wall()`](#63-im_wall)
   - [6.4 `IM_far()`](#64-im_far)
   - [6.5 `IM_LR()`](#65-im_lr)
+  - [6.6 `formIM()`](#66-formim)
 - [7. `output.txt` 解读](#7-outputtxt-解读)
 
 ---
@@ -58,7 +59,12 @@ main.py
 │
 ├─ ss.formvars_main()
 │
-└─ ss.min_timestep()
+├─ ss.min_timestep()
+│
+└─ ss.formIM()
+    ├─ IM_wall()
+    ├─ IM_far()
+    └─ IM_LR()
 
 ```
 
@@ -103,7 +109,17 @@ main.py
 ### 1.4 数据类
 
 - **`node_class`**:`x, y`(节点坐标)
-- **`cell_class`**:`index`(单元格索引 (i,j));`x, y, vol`(中心+面积);`rho, p, T, u, v, E, H, c, ma`(原始变量);`miu, miubl`(粘度);`sad`(壁面距离);`localdt`(当地时间步长);`dt`(实际推进时间步);`U[6], U_former[6]`(守恒量); 方法: `copy_flow_fields(src)` — 复制 9 个流场字段
+- **`cell_class`**:
+  - `index`(单元格索引);
+  - `x, y, vol`(中心+面积);`sad`(壁面距离);
+  - `rho, p, T, u, v, E, H, c, ma`(密度,压力,温度,速度,能量,焓,声速,马赫数);
+  - `miu, miubl`(粘度);
+  - `localdt`(当地时间步长);`dt`(实际推进时间步);
+  - `U[6], U_former[6]`(守恒量); 
+
+  方法:
+  - `copy_flow_fields(src)` — 复制 9 个流场字段; 
+  - `formvars()` — 根据原始变量计算守恒量 U[1..5]
 - **`face_class`**:`ni, nj`(法向量,模长=边长),`mx, my`(中点)
 
 ---
@@ -198,9 +214,9 @@ $$V = \frac{1}{2}\left | (P_{i+1,j+1}-P_{i,j}) \times (P_{i+1,j}-P_{i,j+1}) \rig
 
 ## 6. 求解辅助 — `solvesupple.py`
 
-### 6.1 `formvars()` / `formvars_main()`
+### 6.1 `formvars_main()`
 
-原始变量 → 守恒量变换, 遍历所有单元调用 `formvars()`:
+遍历所有物理单元, 调用 `cell_class.formvars()` 完成原始变量 → 守恒量变换:
 
 $$\boldsymbol{U} = (\rho ,\rho u,\rho v,\rho E,\rho \tilde{\nu})\$$
 
@@ -233,6 +249,14 @@ $$\Delta t_{ij} = \frac{\text{CFL} \cdot V_{ij}}{|uA+vB| + |uC+vD| + c_{ij} \cdo
 - **左侧 ghost** (层 `k=1..IM`): 拷贝自右侧物理端 `CellList[i][j_total - k + 1]`
 - **右侧 ghost** (层 `k=1..IM`): 拷贝自左侧物理端 `CellList[i][k]`
 - 复制字段: `rho, p, E, T, H, u, v, ma, miubl`
+
+### 6.6 `formIM()`
+
+统一入口, 按顺序调用三个边界条件函数构建全部假想网格:
+
+1. `IM_wall()` — 内壁面 ghost (i 方向下边界)
+2. `IM_far()`  — 压力远场 ghost (i 方向上边界)
+3. `IM_LR()`  — 周向周期 ghost (j 方向左右边界)
 
 ---
 
