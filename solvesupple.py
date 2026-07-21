@@ -107,6 +107,17 @@ def formIM():
     IM_far()
     IM_LR()
 
+# def Convective_IM():
+#     """计算假想网格的对流通量,并将结果存储在`CellList` 中."""
+#     for i in range(1, cc.i_total, 1):
+#         for j in range(1, cc.j_total + 1, 1):
+#             cell = cc.CellList[i][j]
+#             # 计算对流通量 (这里假设有一个函数 compute_convective_flux)
+#             # cell.convective_flux = compute_convective_flux(cell)
+#     pass
+
+
+
 # def res_and_ustep():
 #     """通量推进和残差计算,残差依靠`density_table`,同时推进守恒通量"""
 #     for i in range(1, cc.i_total, 1):

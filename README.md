@@ -101,8 +101,8 @@ main.py
 |------|------|------|
 | `NodeList` | `[i_total+1][j_total+1]` | 网格节点,i=径向层,j=周向 |
 | `CellList` | `[i_total][j_total+1]` | 计算单元,i=1..i_total-1 |
-| `Facelist_tau` | `[i_total+1][j_total+1]` | 周向边的面数据 |
-| `FaceList_n` | `[j_total+1][i_total]` | 径向边的面数据 |
+| `Facelist_tau` | `[i_total+1][j_total+1]` | 波纹圈子 |
+| `FaceList_n` | `[j_total+1][i_total]` | 波纹直径 |
 | `totaltime` | 标量 | 全局累加模拟时间 |
 | `density_table` | `[i_total+1][j_total+1]` | 密度快照 (残差计算用) |
 
@@ -120,7 +120,7 @@ main.py
   方法:
   - `copy_flow_fields(src)` — 复制 9 个流场字段; 
   - `formvars()` — 根据原始变量计算守恒量 U[1..5]
-- **`face_class`**:`ni, nj`(法向量,模长=边长),`mx, my`(中点)
+- **`face_class`**:`nx, ny`(法向量,模长=边长),`mx, my`(中点)
 
 ---
 
@@ -257,6 +257,15 @@ $$\Delta t_{ij} = \frac{\text{CFL} \cdot V_{ij}}{|uA+vB| + |uC+vD| + c_{ij} \cdo
 1. `IM_wall()` — 内壁面 ghost (i 方向下边界)
 2. `IM_far()`  — 压力远场 ghost (i 方向上边界)
 3. `IM_LR()`  — 周向周期 ghost (j 方向左右边界)
+
+#### 虚拟网格索引范围（便于查阅）
+
+按当前实现，物理网格占据 `CellList[i][j]` 的行 `i = 1 ~ i_total - 1`、列 `j = 1 ~ j_total`；随后追加的虚拟网格索引如下：
+<!-- 虚拟网格索引范围有待改写 -->
+- 壁面虚拟层： $i_{total} \sim i_{total} + IM - 1$ 行
+- 远场虚拟层： $i_{total} + IM \sim i_{total} + 2IM - 1$ 行
+- 左周期虚拟列：$j_{total} + 1 \sim j_{total} + IM$ 列
+- 右周期虚拟列：$j_{total} + IM + 1 \sim j_{total} + 2IM$ 列
 
 ---
 

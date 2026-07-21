@@ -5,6 +5,7 @@ import math
 def initialization(T0=cc.T0,AOA=cc.AOA,Ma=cc.Ma,P0=cc.P0):
     """标准初始化,使用入口条件,需要给定:\n 
     来流总温`T0`、马赫数`Ma`、压力`P0`和攻角`AOA`(单位:°)"""
+    cc.totaltime = 0
     for i in range(1, cc.i_total):
         for j in range(1, cc.j_total + 1):
             cc.CellList[i][j].ma = Ma

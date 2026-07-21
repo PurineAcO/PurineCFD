@@ -15,14 +15,14 @@ def geometry_debug(debugoutput=cc.outputfile):
         for i in range(1,cc.i_total+1,1):
             for j in range(1,cc.j_total+1,1):
                 face_tau = cc.Facelist_tau[i][j]
-                f.write(f"face_tau index: ({face_tau.index}), normal vector: ({face_tau.ni}, {face_tau.nj})\n")
+                f.write(f"face_tau index: ({face_tau.index}), normal vector: ({face_tau.nx}, {face_tau.ny})\n")
                 f.write(f"face_tau middle point: ({face_tau.mx}, {face_tau.my})\n")
                 f.write("-------------------------------------\n")
 
-        for j in range(1, cc.j_total + 1):
-            for i in range(1, cc.i_total):
-                face_n = cc.FaceList_n[j][i]
-                f.write(f"face_n index: ({face_n.index}), normal vector: ({face_n.ni}, {face_n.nj})\n")
+        for i in range(1, cc.i_total ):
+            for j in range(1, cc.j_total + 1):
+                face_n = cc.FaceList_n[i][j]
+                f.write(f"face_n index: ({face_n.index}), normal vector: ({face_n.nx}, {face_n.ny})\n")
                 f.write(f"face_n middle point: ({face_n.mx}, {face_n.my})\n")
                 f.write("-------------------------------------\n")
 
@@ -82,8 +82,8 @@ def mesh_visualization(savepath=None, show_centers=True, show_tau=True, show_n=T
                 mx = (cc.NodeList[i][j].x + cc.NodeList[i][jn].x) * 0.5
                 my = (cc.NodeList[i][j].y + cc.NodeList[i][jn].y) * 0.5
                 tx.append(mx); ty.append(my)
-                tni.append(cc.Facelist_tau[i][j].ni)
-                tnj.append(cc.Facelist_tau[i][j].nj)
+                tni.append(cc.Facelist_tau[i][j].nx)
+                tnj.append(cc.Facelist_tau[i][j].ny)
         ax.quiver(tx, ty, tni, tnj, color='darkcyan', scale=1/arrow_scale,
                   scale_units='xy', width=arrow_width, zorder=6, label='face_tau normal')
 
@@ -95,8 +95,8 @@ def mesh_visualization(savepath=None, show_centers=True, show_tau=True, show_n=T
                 mx = (cc.NodeList[i][j].x + cc.NodeList[i+1][j].x) * 0.5
                 my = (cc.NodeList[i][j].y + cc.NodeList[i+1][j].y) * 0.5
                 nx.append(mx); ny.append(my)
-                nni.append(cc.FaceList_n[j][i].ni)
-                nnj.append(cc.FaceList_n[j][i].nj)
+                nni.append(cc.FaceList_n[j][i].nx)
+                nnj.append(cc.FaceList_n[j][i].ny)
         ax.quiver(nx, ny, nni, nnj, color='darkorange', scale=1/arrow_scale,
                   scale_units='xy', width=arrow_width, zorder=6, label='face_n normal')
 
