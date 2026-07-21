@@ -67,7 +67,8 @@ class cell_class:
         self.localdt = 0    # locally computed time step (per-cell)
         self.dt = 0         # actual time step used for advancement (= global min)
         self.U = np.zeros(6) # conservative variables
-        self.U_former = np.zeros(6) # former conservative variables 
+        self.U_former = np.zeros(6) # former conservative variables
+        self.Fc = np.zeros(6) # cell flux variables
 
     def copy_flow_fields(self, src):
         """将 `src` 的流场量复制到 `self`, 不覆盖几何属性 (index/x/y/vol/sad)."""
