@@ -117,6 +117,13 @@ class cell_class:
         self.miublgrad = np.array([0,np.dot(miubl_vec,nx_vec),np.dot(miubl_vec,ny_vec)])/self.vol
         self.Tgrad = np.array([0,np.dot(T_vec,nx_vec),np.dot(T_vec,ny_vec)])/self.vol
 
+    def copy_grad(self,src:cell_class,ifu=True,ifv=True,ifT=True,ifmiubl=True):
+        """将 `src` 的梯度复制到 `self`, 可选择复制 ugrad, vgrad, Tgrad, miublgrad"""
+        self.ugrad = src.ugrad if ifu else np.zeros(3)
+        self.vgrad = src.vgrad if ifv else np.zeros(3)
+        self.Tgrad = src.Tgrad if ifT else np.zeros(3)
+        self.miublgrad = src.miublgrad if ifmiubl else np.zeros(3)
+
 class face_class:
     def __init__(self,index):
         self.index = index
@@ -138,7 +145,7 @@ class face_class:
         """根据相邻单元的守恒量计算面上的守恒量*U*.采用一阶中心差分"""
         self.FU = 0.5 * (cell_1.U + cell_2.U)
     
-    def form_face_vars_2stbounded(self,cell_1:cell_class, cell_2:cell_class):
+    def form_face_vars_1stbounded(self,cell_1:cell_class, cell_2:cell_class):
         """根据相邻单元的守恒量计算面上的物理量*ϕ*(含*̃ν,u,v,T*).采用一阶中心差分"""
         self.u = (cell_1.u+cell_2.u) / 2
         self.v = (cell_1.v+cell_2.v) / 2
