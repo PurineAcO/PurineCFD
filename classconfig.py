@@ -16,7 +16,7 @@ except json.JSONDecodeError as e:
     print(f"详细信息：{e}")
     exit(1)
 
-# 物理常数
+# 物理常数(理想气体、Suthland)
 gamma = _cfg['physics']['gamma']
 R     = _cfg['physics']['R']
 T0    = _cfg['physics']['T0']
@@ -24,6 +24,12 @@ Ts    = _cfg['physics']['Ts']
 mu0   = _cfg['physics']['mu0']
 P0    = _cfg['physics']['P0']
 c0    = _cfg['physics']['c0']
+
+# 湍流模型(S-A)
+Cv1 = _cfg['spalart_allmaras']['Cv1']  # 阻尼常数I,一般取值为7.1
+Pr = _cfg['spalart_allmaras']['Pr']    # 普朗特数,一般取值为0.71
+Prt = _cfg['spalart_allmaras']['Prt']  # 湍流普朗特数,一般取值为0.9
+
 
 # 模拟状态
 AOA   = _cfg['simulation']['AOA'] 
