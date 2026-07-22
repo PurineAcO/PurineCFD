@@ -1,28 +1,17 @@
 {
     "physics": {
         "gamma": 1.4,
-        "_gamma_comment": "比热比 Cp/Cv",
         "R": 287.06,
-        "_R_comment": "空气气体常数 J/(kg·K)",
         "T0": 288.16,
-        "_T0_comment": "来流总温 / 入口静温 K",
         "Ts": 110,
-        "_Ts_comment": "Sutherland 常数 K",
         "mu0": 1.7894e-05,
-        "_mu0_comment": "T0 下的动力粘度 Pa·s",
         "P0": 101325.0,
-        "_P0_comment": "来流总压 / 入口静压 Pa",
-        "c0": 340.28,
-        "_c0_comment": "海平面参考声速 m/s"
+        "c0": 340.28
     },
     "simulation": {
         "AOA": 0,
-        "_AOA_comment": "攻角 °",
         "Ma": 0.2,
-        "_Ma_comment": "来流马赫数",
         "CFL": 0.8,
-        "_CFL_comment": "Courant 数",
-        "IM": 3,
-        "_IM_comment": "假想网格层数 (ghost cell layers)"
+        "IM": 3
     }
 }

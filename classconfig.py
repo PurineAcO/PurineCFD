@@ -4,8 +4,17 @@ import os
 
 # ── 从 JSON 加载物理参数与模拟设置 ──────────────────────────
 _config_path = os.path.join(os.path.dirname(__file__), 'config.json')
-with open(_config_path, 'r', encoding='utf-8') as _f:
-    _cfg = json.load(_f)
+try:
+    with open(_config_path, 'r', encoding='utf-8') as _f:
+        _cfg = json.load(_f)
+except FileNotFoundError:
+    print(f"错误：找不到配置文件 {_config_path}")
+    print("请确保 config.json 与 classconfig.py 在同一目录下。")
+    exit(1)
+except json.JSONDecodeError as e:
+    print(f"错误：配置文件 {_config_path} 格式错误")
+    print(f"详细信息：{e}")
+    exit(1)
 
 # 物理常数
 gamma = _cfg['physics']['gamma']
@@ -17,12 +26,12 @@ P0    = _cfg['physics']['P0']
 c0    = _cfg['physics']['c0']
 
 # 模拟状态
-AOA   = _cfg['simulation']['AOA']
+AOA   = _cfg['simulation']['AOA'] 
 Ma    = _cfg['simulation']['Ma']
 
 # 求解器设置
 CFL   = _cfg['simulation']['CFL']
-IM    = _cfg['simulation']['IM']    # ghost cell layers
+IM    = _cfg['simulation']['IM']    # ghost cell layers.
 
 # area for the global variables
 i_total = 0
@@ -69,6 +78,10 @@ class cell_class:
         self.U = np.zeros(6) # conservative variables
         self.U_former = np.zeros(6) # former conservative variables
         self.Fc = np.zeros(6) # cell flux variables
+        self.Tgrad = np.zeros(3) # temperature gradient
+        self.ugrad = np.zeros(3) # velocity gradient
+        self.vgrad = np.zeros(3) # velocity gradient
+        self.miublgrad = np.zeros(3) # turbulent viscosity gradient
 
     def copy_flow_fields(self, src):
         """将 `src` 的流场量复制到 `self`, 不覆盖几何属性 (index/x/y/vol/sad)."""
@@ -83,12 +96,26 @@ class cell_class:
         self.miubl = src.miubl
 
     def formvars(self):
-        """根据原始变量计算守恒量 U[1..5]."""
+        """根据原始变量计算守恒量 U[1~5]."""
         self.U[1] = self.rho
         self.U[2] = self.rho * self.u
         self.U[3] = self.rho * self.v
         self.U[4] = self.rho * self.E
         self.U[5] = self.rho * self.miubl
+
+    def green_gauss(self,face1:face_class,face2:face_class,
+                    face3:face_class,face4:face_class):
+        """基于Green-Guass的梯度构建"""
+        u_vec = np.array([face1.u,face2.u,face3.u,face4.u])
+        v_vec = np.array([face1.v,face2.v,face3.v,face4.v])
+        miubl_vec = np.array([face1.miubl,face2.miubl,face3.miubl,face4.miubl])
+        T_vec = np.array([face1.T,face2.T,face3.T,face4.T])
+        nx_vec = np.array([face1.nx,-face2.nx,face3.nx,-face4.nx])
+        ny_vec = np.array([face1.ny,-face2.ny,face3.ny,-face4.ny])
+        self.ugrad = np.array([0,np.dot(u_vec,nx_vec),np.dot(u_vec,ny_vec)])/self.vol
+        self.vgrad = np.array([0,np.dot(v_vec,nx_vec),np.dot(v_vec,ny_vec)])/self.vol
+        self.miublgrad = np.array([0,np.dot(miubl_vec,nx_vec),np.dot(miubl_vec,ny_vec)])/self.vol
+        self.Tgrad = np.array([0,np.dot(T_vec,nx_vec),np.dot(T_vec,ny_vec)])/self.vol
 
 class face_class:
     def __init__(self,index):
@@ -97,6 +124,7 @@ class face_class:
         self.p = 0         # pressure
         self.u = 0         # x-component of velocity
         self.v = 0         # y-component of velocity
+        self.T = 0         # temperature
         self.miubl = 0     # turbulent viscosity
         self.E = 0         # total energy per unit mass
         self.nx = 0        # normal direction n
@@ -106,23 +134,26 @@ class face_class:
         self.FU = np.zeros(6) # face conservative variables
         self.Flux = np.zeros(6) # face flux variables
 
-    def form_face_conserved(self,cell_1:cell_class, cell_2:cell_class):
-        """根据相邻单元的守恒量计算面上的守恒量.采用一阶中心差分"""
+    def form_face_conserved_1stbounded(self,cell_1:cell_class, cell_2:cell_class):
+        """根据相邻单元的守恒量计算面上的守恒量*U*.采用一阶中心差分"""
         self.FU = 0.5 * (cell_1.U + cell_2.U)
     
-    def get_vars(self):
-        """拆分面上守恒量为基本物理量"""
+    def form_face_vars_2stbounded(self,cell_1:cell_class, cell_2:cell_class):
+        """根据相邻单元的守恒量计算面上的物理量*ϕ*(含*̃ν,u,v,T*).采用一阶中心差分"""
+        self.u = (cell_1.u+cell_2.u) / 2
+        self.v = (cell_1.v+cell_2.v) / 2
+        self.miubl = (cell_1.miubl+cell_2.miubl) / 2
+        self.T = (cell_1.T+cell_2.T) / 2
+    
+    def form_flux(self):
+        """根据基本物理量计算通量项"""
         self.rho = self.FU[1]
-        if self.rho == 0: print("rho is 0 at face",self.index)
+        if self.rho <= 1e-15: print("rho is 0 at face",self.index); exit(6)
         self.u = self.FU[2] / self.rho
         self.v = self.FU[3] / self.rho
         self.miubl = self.FU[5] / self.rho
         self.E = self.FU[4]/ self.rho
         self.p = (gamma-1)*(self.FU[4]-self.rho*(self.u**2+self.v**2)*0.5)
-
-    def form_flux(self):
-        """根据基本物理量计算通量项"""
-        self.get_vars()
         normal_vel = self.nx * self.u + self.ny * self.v  # 法向传播速度因子
         self.Flux[1] = self.rho * normal_vel
         self.Flux[2] = self.rho * self.u * normal_vel + self.p * self.nx
