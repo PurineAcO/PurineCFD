@@ -264,7 +264,7 @@ $$\Delta t_{ij} = \frac{\text{CFL} \cdot V_{ij}}{|uA+vB| + |uC+vD| + c_{ij} \cdo
 
 按当前实现，物理网格占据 `CellList[i][j]` 的行 `i = 1 ~ i_total - 1`、列 `j = 1 ~ j_total`；随后追加的虚拟网格索引如下：
 <!-- 虚拟网格索引范围有待改写 -->
-- 壁面虚拟层： $i_{total} \sim i_{total} + IM - 1$ 行
+<!-- - 壁面虚拟层： $i_{total} \sim i_{total} + IM - 1$ 行
 - 远场虚拟层： $i_{total} + IM \sim i_{total} + 2IM - 1$ 行
 - 左周期虚拟列：$j_{total} + 1 \sim j_{total} + IM$ 列
 - 右周期虚拟列：$j_{total} + IM + 1 \sim j_{total} + 2IM$ 列
@@ -277,4 +277,4 @@ $$\Delta t_{ij} = \frac{\text{CFL} \cdot V_{ij}}{|uA+vB| + |uC+vD| + c_{ij} \cdo
 
 - **单元段**:各个单元的索引`index`、面积`vol`、中心坐标`center`和壁面距离`sad`
 - **面法向量段**:周向边和径向边的索引`index`、法向量`ni, nj`和中点坐标`mx, my`
-- **流场段**:所有单元的原始变量和粘度,以及 `CellList[1][1]` 的全部流场示例 -->
+- **流场段**:所有单元的原始变量和粘度,以及 `CellList[1][1]` 的全部流场示例  -->
