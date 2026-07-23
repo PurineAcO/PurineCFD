@@ -1,7 +1,9 @@
 # PurineCFD
 ---
 
-## 目录
+写的太快了,没时间更新简介.暂时关闭`README.md`
+
+<!-- ## 目录
 
 - [项目概览](#项目概览)
 - [1. 配置 — `config.json` / `classconfig.py`](#1-配置--configjson--classconfigpy)
@@ -275,4 +277,4 @@ $$\Delta t_{ij} = \frac{\text{CFL} \cdot V_{ij}}{|uA+vB| + |uC+vD| + c_{ij} \cdo
 
 - **单元段**:各个单元的索引`index`、面积`vol`、中心坐标`center`和壁面距离`sad`
 - **面法向量段**:周向边和径向边的索引`index`、法向量`ni, nj`和中点坐标`mx, my`
-- **流场段**:所有单元的原始变量和粘度,以及 `CellList[1][1]` 的全部流场示例
+- **流场段**:所有单元的原始变量和粘度,以及 `CellList[1][1]` 的全部流场示例 -->
