@@ -32,7 +32,18 @@ Cv1 = _cfg['spalart_allmaras']['Cv1']  # 阻尼常数I,一般取值为7.1
 Pr = _cfg['spalart_allmaras']['Pr']    # 普朗特数,一般取值为0.71
 Prt = _cfg['spalart_allmaras']['Prt']  # 湍流普朗特数,一般取值为0.9
 sigma = _cfg['spalart_allmaras']['sigma']  # 湍流模型参数σ的倒数,一般取值为1.5
+Cb1 = _cfg['spalart_allmaras']['Cb1']  # 湍流模型参数Cb1,一般取值为0.1355
 Cb2 = _cfg['spalart_allmaras']['Cb2']  # 湍流模型参数Cb2,一般取值为0.622
+Cw2 = _cfg['spalart_allmaras']['Cw2']  # 湍流模型参数Cw2,一般取值为0.3
+Cw3 = _cfg['spalart_allmaras']['Cw3']  # 湍流模型参数Cw3,一般取值为2.0
+Ct3 = _cfg['spalart_allmaras']['Ct3']  # 湍流模型参数Ct3,一般取值为1.2
+Ct4 = _cfg['spalart_allmaras']['Ct4']  # 湍流模型参数Ct4,一般取值为0.5
+fv3 = _cfg['spalart_allmaras']['fv3']  # 湍流模型参数fv3,一般取值为1.0
+kappa = _cfg['spalart_allmaras']['kappa']  # 湍流模型参数kappa,一般取值为0.41(也有取为0.4187的)
+rmax = _cfg['spalart_allmaras']['rmax']  # 湍流模型参数rmax,一般取值为10
+
+Cw1 = Cb1/(kappa**2) + (1+Cb2)*sigma
+
 
 # 模拟状态
 AOA   = _cfg['simulation']['AOA'] 
@@ -82,6 +93,8 @@ class cell_class:
         self.ma = 0         # Mach number
         self.miu = 0        # dynamic viscosity
         self.miubl = 0      # turbulent viscosity
+        self.chi = 0        # turbulent viscosity ratio
+        self.fv1 = 0        # damping function fv1
         self.localdt = 0    # locally computed time step (per-cell)
         self.dt = 0         # actual time step used for advancement (= global min)
         self.U = np.zeros(6) # conservative variables
@@ -92,7 +105,8 @@ class cell_class:
         self.vgrad = np.zeros(3) # velocity gradient
         self.miublgrad = np.zeros(3) # turbulent viscosity gradient
         self.DiffuTurb = np.zeros((6,2)) # turbulent diffusion matrix
-        self.Fv = np.zeros(6) # turbulent diffusion term 
+        self.Fv = np.zeros(6) # turbulent diffusion term
+        self.S = np.zeros(6)  # turbulent source term
 
     def copy_flow_fields(self, src:cell_class):
         """将 `src` 的流场量复制到 `self`, 不覆盖几何属性 (index/x/y/vol/sad)."""
@@ -138,6 +152,7 @@ class face_class:
         self.FU = np.zeros(6) # face conservative variables
         self.Flux = np.zeros(6) # face flux variables
         self.DiffuTurb = np.zeros(6) # face turbulent diffusion term
+        self.miublgrad = np.zeros(3) # turbulent viscosity gradient
 
     def form_face_conserved_1stbounded(self,cell_1:cell_class, cell_2:cell_class):
         """根据相邻单元的守恒量计算面上的守恒量*U*.采用一阶中心差分"""
