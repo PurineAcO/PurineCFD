@@ -114,20 +114,6 @@ class cell_class:
         self.U[4] = self.rho * self.E
         self.U[5] = self.rho * self.miubl
 
-    def green_gauss(self,face1:face_class,face2:face_class,
-                    face3:face_class,face4:face_class):
-        """基于Green-Guass的梯度构建"""
-        u_vec = np.array([face1.u,face2.u,face3.u,face4.u])
-        v_vec = np.array([face1.v,face2.v,face3.v,face4.v])
-        miubl_vec = np.array([face1.miubl,face2.miubl,face3.miubl,face4.miubl])
-        T_vec = np.array([face1.T,face2.T,face3.T,face4.T])
-        nx_vec = np.array([face1.nx,-face2.nx,face3.nx,-face4.nx])
-        ny_vec = np.array([face1.ny,-face2.ny,face3.ny,-face4.ny])
-        self.ugrad = np.array([0,np.dot(u_vec,nx_vec),np.dot(u_vec,ny_vec)])/self.vol
-        self.vgrad = np.array([0,np.dot(v_vec,nx_vec),np.dot(v_vec,ny_vec)])/self.vol
-        self.miublgrad = np.array([0,np.dot(miubl_vec,nx_vec),np.dot(miubl_vec,ny_vec)])/self.vol
-        self.Tgrad = np.array([0,np.dot(T_vec,nx_vec),np.dot(T_vec,ny_vec)])/self.vol
-
     def copy_grad(self,src:cell_class,ifu=True,ifv=True,ifT=True,ifmiubl=True):
         """将 `src` 的梯度复制到 `self`, 可选择复制 ugrad, vgrad, Tgrad, miublgrad"""
         self.ugrad = src.ugrad if ifu else np.zeros(3)
@@ -156,12 +142,6 @@ class face_class:
     def form_face_conserved_1stbounded(self,cell_1:cell_class, cell_2:cell_class):
         """根据相邻单元的守恒量计算面上的守恒量*U*.采用一阶中心差分"""
         self.FU = 0.5 * (cell_1.U + cell_2.U)
-
-    def form_face_diffusion_1stbounded(self,cell_1:cell_class,cell_2:cell_class):
-        """根据相邻单元的湍流扩散项计算面上的湍流扩散项`DiffuTurb`.采用一阶中心差分"""
-        face_diff = (cell_1.DiffuTurb + cell_2.DiffuTurb) / 2.0  
-        normal = np.array([self.nx, self.ny])
-        self.DiffuTurb = face_diff @ normal   
     
     def form_face_vars_1stbounded(self,cell_1:cell_class, cell_2:cell_class):
         """根据相邻单元的守恒量计算面上的物理量*ϕ*(含*̃ν,u,v,T*).采用一阶中心差分"""

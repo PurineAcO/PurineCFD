@@ -23,3 +23,9 @@ def Spalart_Allmaras(cell:cc.cell_class):
                         cell.u*tau_xy + cell.v*tau_yy + q_y]  
     cell.DiffuTurb[5] = [cc.sigma * (mu + cell.U[5] + cc.Cb2*cell.U[5]) * cell.miublgrad[1],
                         cc.sigma * (mu + cell.U[5] + cc.Cb2*cell.U[5]) * cell.miublgrad[2]] 
+    
+def form_face_diffusion_1stbounded(face:cc.face_class,cell_1:cc.cell_class,cell_2:cc.cell_class):
+    """根据相邻单元的湍流扩散项计算面上的湍流扩散项`DiffuTurb`.采用一阶中心差分"""
+    face_diff = (cell_1.DiffuTurb + cell_2.DiffuTurb) / 2.0  
+    normal = np.array([face.nx, face.ny])
+    face.DiffuTurb = face_diff @ normal   
