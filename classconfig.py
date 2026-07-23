@@ -24,12 +24,15 @@ Ts    = _cfg['physics']['Ts']
 mu0   = _cfg['physics']['mu0']
 P0    = _cfg['physics']['P0']
 c0    = _cfg['physics']['c0']
+cv    = R/(gamma-1)
+cp    = gamma*cv
 
 # 湍流模型(S-A)
 Cv1 = _cfg['spalart_allmaras']['Cv1']  # 阻尼常数I,一般取值为7.1
 Pr = _cfg['spalart_allmaras']['Pr']    # 普朗特数,一般取值为0.71
 Prt = _cfg['spalart_allmaras']['Prt']  # 湍流普朗特数,一般取值为0.9
-
+sigma_daoshu = _cfg['spalart_allmaras']['sigma']  # 湍流模型参数σ的倒数,一般取值为1.5
+Cb2 = _cfg['spalart_allmaras']['Cb2']  # 湍流模型参数Cb2,一般取值为0.622
 
 # 模拟状态
 AOA   = _cfg['simulation']['AOA'] 
@@ -88,6 +91,7 @@ class cell_class:
         self.ugrad = np.zeros(3) # velocity gradient
         self.vgrad = np.zeros(3) # velocity gradient
         self.miublgrad = np.zeros(3) # turbulent viscosity gradient
+        self.DiffuTurb = np.zeros((6,2)) # turbulent diffusion term
 
     def copy_flow_fields(self, src):
         """将 `src` 的流场量复制到 `self`, 不覆盖几何属性 (index/x/y/vol/sad)."""
@@ -146,10 +150,17 @@ class face_class:
         self.my = 0        # middle point y
         self.FU = np.zeros(6) # face conservative variables
         self.Flux = np.zeros(6) # face flux variables
+        self.DiffuTurb = np.zeros(6) # face turbulent diffusion term
 
     def form_face_conserved_1stbounded(self,cell_1:cell_class, cell_2:cell_class):
         """根据相邻单元的守恒量计算面上的守恒量*U*.采用一阶中心差分"""
         self.FU = 0.5 * (cell_1.U + cell_2.U)
+
+    def form_face_diffusion_1stbounded(self,cell_1:cell_class,cell_2:cell_class):
+        """根据相邻单元的湍流扩散项计算面上的湍流扩散项*DiffuTurb*.采用一阶中心差分"""
+        face_diff = (cell_1.DiffuTurb + cell_2.DiffuTurb) / 2.0  
+        normal = np.array([self.nx, self.ny])
+        self.DiffuTurb = face_diff @ normal   
     
     def form_face_vars_1stbounded(self,cell_1:cell_class, cell_2:cell_class):
         """根据相邻单元的守恒量计算面上的物理量*ϕ*(含*̃ν,u,v,T*).采用一阶中心差分"""

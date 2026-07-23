@@ -17,6 +17,8 @@
     "spalart_allmaras": {
         "Cv1": 7.1,
         "Pr":0.9,
-        "Prt":0.71
+        "Prt":0.71,
+        "sigma": 1.5,
+        "Cb2": 0.622
     }
 }
