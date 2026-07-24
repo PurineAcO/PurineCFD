@@ -111,7 +111,6 @@ class cell_class:
         self.DiffuTurb = np.zeros((6,2)) # turbulent diffusion matrix
         self.Fv = np.zeros(6) # turbulent diffusion term
         self.S = np.zeros(6)  # turbulent source term
-        self.shockwave = 0    # shock wave coefficient
         self.Fd = np.zeros(6) # JST dissipation term
 
     def copy_flow_fields(self, src:cell_class):
@@ -160,6 +159,7 @@ class face_class:
         self.DiffuTurb = np.zeros(6) # face turbulent diffusion term
         self.miublgrad = np.zeros(3) # turbulent viscosity gradient
         self.lambda_f = 0            # face spectral radius
+        self.shockwave = 0           # face shockwave indicator
         self.epsilon = np.zeros(3)   # adaptive dissipation coefficient
         self.Dissipation = np.zeros(6) # JST dissipation term
 
