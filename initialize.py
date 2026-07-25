@@ -1,5 +1,6 @@
 import classconfig as cc
 import output as ot
+import numpy as np
 import math
 
 def initialization(T0=cc.T0,AOA=cc.AOA,Ma=cc.Ma,P0=cc.P0):
@@ -22,5 +23,9 @@ def initialization(T0=cc.T0,AOA=cc.AOA,Ma=cc.Ma,P0=cc.P0):
 
 def initialization_main():
     """执行标准初始化,并将部分结果输出到文件中."""
+    # some temp variables
+    cc.shockwave_tau = np.zeros((cc.i_total+cc.IM+1,cc.j_total+1))
+    cc.shockwave_n = np.zeros((cc.i_total,cc.j_total+cc.IM+1))
+    cc.density_table = np.zeros((cc.i_total+1,cc.j_total+1))
     initialization()
     ot.initialize_output()

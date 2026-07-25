@@ -6,11 +6,17 @@ def Spectral_Radius(face:cc.face_class,cell_1:cc.cell_class,cell_2:cc.cell_class
     face.lambda_f = 0.5 * cc.CFL *(cell_1.vol/cell_1.localdt 
                                    + cell_2.vol/cell_2.localdt)
 
-# def shockwave_catcher(face:cc.face_class,cell_1:cc.cell_class,
-#                       cell_2:cc.cell_class,cell_3:cc.cell_class):
-#     """激波捕捉因子,其中单元排列为`cell_1|(face)|cell_2|cell_3`"""
-#     cc.mu[i][j] = abs((cell_1.p - 2*cell_2.p + cell_3.p)/
-#                            (cell_1.p + 2*cell_2.p + cell_3.p))
+def shockwave_catcher(index:tuple,direction:str,cell_1:cc.cell_class,
+                      cell_2:cc.cell_class,cell_3:cc.cell_class):
+    """激波捕捉因子,其中单元排列为`cell_1|(face)|cell_2|cell_3`"""
+    i = index[0]
+    j = index[1]
+    if direction == "tau":
+        cc.shockwave_tau[i][j] = abs((cell_1.p - 2*cell_2.p + cell_3.p)/
+                                 (cell_1.p + 2*cell_2.p + cell_3.p))
+    elif direction== "n":
+        cc.shockwave_n[i][j] = abs((cell_1.p - 2*cell_2.p + cell_3.p)/
+                                 (cell_1.p + 2*cell_2.p + cell_3.p))
 
 # def adaptive_dissipation(face:cc.face_class,
 #                          cell_1:cc.cell_class,cell_2:cc.cell_class,
