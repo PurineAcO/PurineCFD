@@ -42,13 +42,14 @@ def min_timestep():
             cc.CellList[i][j].dt = mintime
 
     cc.totaltime += mintime
+    return mintime
 
 def riemann_main():
     """使用压力远场更新边界条件"""
     for j in range(1,cc.j_total+1):
         bd.riemann(j)
 
-def imagination_mesh():
+def imagination_mesh_create():
     """设立虚拟网格"""
     # 设置壁面虚拟网格,使用镜像法
     for im in range(1, cc.IM + 1):
@@ -107,6 +108,65 @@ def imagination_mesh():
         # ── 右侧假想网格 ──
         for im in range(1, cc.IM + 1):
             gcell = cc.cell_class((i, cc.j_total + cc.IM + im))
+            gcell.copy_flow_fields(cc.CellList[i][im])
+            gcell.formvars()
+            cc.CellList[i].append(gcell)
+
+def imagination_mesh_update():
+    """更新虚拟网格"""
+    # 设置壁面虚拟网格,使用镜像法
+    for im in range(1, cc.IM + 1):
+        ghost_row = [[]]                       # j=0 占位
+        for j in range(1, cc.j_total + 1):
+            gcell : cc.cell_class = cc.CellList[cc.i_total + im - 1][j]
+
+            # 标量: 从壁面直接复制
+            gcell.rho = cc.CellList[1][j].rho
+            gcell.p   = cc.CellList[1][j].p
+            gcell.T   = cc.CellList[1][j].T
+            gcell.E   = cc.CellList[1][j].E
+            gcell.H   = cc.CellList[1][j].H
+            gcell.c   = cc.CellList[1][j].c
+
+            # 速度 / 湍流粘度: 取对应内层的相反数 (镜像反射)
+            gcell.u     = -cc.CellList[im][j].u
+            gcell.v     = -cc.CellList[im][j].v
+            gcell.miubl = -cc.CellList[im][j].miubl
+            gcell.ma = (math.sqrt(cc.CellList[im][j].u ** 2 +
+                                    cc.CellList[im][j].v ** 2) / cc.CellList[1][j].c)
+            gcell.formvars()
+
+    # 设置远场虚拟网格,有关数据从边界条件计算!
+    for im in range(1, cc.IM + 1):
+        ghost_row = [[]]             # j=0 占位
+        for j in range(1, cc.j_total + 1):
+            face : cc.face_class = cc.Facelist_tau[cc.i_total][j]
+            # gcell = cc.cell_class((cc.i_total + im - 1, j))
+            gcell :cc.cell_class = cc.CellList[cc.i_total-1+cc.IM+im][j]
+            gcell.rho = face.rho
+            gcell.E = face.E
+            gcell.p = face.p
+            gcell.T = face.T
+            # gcell.H
+            gcell.u = face.u
+            gcell.v = face.v
+            gcell.ma = (face.u**2+face.v**2)/(cc.gamma*cc.R*face.T)
+            gcell.miubl = face.miubl
+            gcell.formvars()
+
+    # 设置 O 型网格切割线两侧的周期假想网格 (j 方向周期边界)
+    # 左侧 ghost ← 右侧物理端 (j = j_total, j_total-1, ...)
+    # 右侧 ghost ← 左侧物理端 (j = 1, 2, ...)
+    for i in range(1, cc.i_total):
+        # ── 左侧假想网格 ──
+        for im in range(1, cc.IM + 1):
+            gcell :cc.cell_class = cc.CellList[i][cc.j_total+im]
+            gcell.copy_flow_fields(cc.CellList[i][cc.j_total - im + 1])
+            gcell.formvars()
+
+        # ── 右侧假想网格 ──
+        for im in range(1, cc.IM + 1):
+            gcell:cc.cell_class = cc.CellList[i][cc.j_total+cc.IM+im]
             gcell.copy_flow_fields(cc.CellList[i][im])
             gcell.formvars()
             cc.CellList[i].append(gcell)
@@ -218,7 +278,7 @@ def calc_grad():
         cell.copy_grad(cc.CellList[i][1])
 
 def calc_diffusion():
-    """计算因湍流模型引起的扩散项"""
+    """邢程因湍流模型引起的扩散项"""
     # 计算壁面假想网格 S-A湍流模型各个参量
     for j in range(1,cc.j_total+1):
         cell : cc.cell_class = cc.CellList[cc.i_total][j]
@@ -285,14 +345,14 @@ def calc_diffusion():
                     face_right.DiffuTurb - face_left.DiffuTurb)
 
 def calc_source():
-    """计算因湍流模型引起的源项"""
+    """邢程因湍流模型引起的源项"""
     for i in range(1,cc.i_total):
         for j in range(1,cc.j_total+1):
             cell : cc.cell_class = cc.CellList[i][j]
             tb.form_source_term(cell)
 
 def calc_dissipation():
-    """计算人工粘性项,JST不是一个稳定的格式,使用4阶粘性进行耗散"""
+    """邢程人工粘性项,JST不是一个稳定的格式,使用4阶粘性进行耗散"""
     # tau边界上的谱半径近似
     for i in range(1,cc.i_total+1):
         for j in range(1,cc.j_total+1):
@@ -412,3 +472,9 @@ def calc_dissipation():
             cell.Fd = (face_up.Dissipation + face_right.Dissipation -
                     face_down.Dissipation - face_left.Dissipation)
 
+def form_vars():
+    """还原基本物理量"""
+    for i in range(1,cc.i_total):
+        for j in range(1,cc.j_total+1):
+            cell : cc.cell_class = cc.CellList[i][j]
+            cell.form_physic_vars()

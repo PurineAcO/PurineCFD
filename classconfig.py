@@ -73,6 +73,9 @@ rholl = P/(R*T)                 # 来流密度
 # 求解器设置
 CFL   = _cfg['simulation']['CFL']
 IM    = _cfg['simulation']['IM']    # ghost cell layers.
+RK    = (0,0.25,1/6,0.375,0.5,1)      # Runge-Kutta params
+iteration = 10000                   # max iteration
+targetres = 1e-10                   # target residual
 
 # area for the global variables
 i_total = 0
@@ -129,6 +132,7 @@ class cell_class:
         self.Fv = np.zeros(6) # turbulent diffusion term
         self.S = np.zeros(6)  # turbulent source term
         self.Fd = np.zeros(6) # JST dissipation term
+        self.URK = np.zeros(6) # Runge-Kutta conservative term
 
     def copy_flow_fields(self, src:cell_class):
         """将 `src` 的流场量复制到 `self`, 不覆盖几何属性 (index/x/y/vol/sad)."""
@@ -149,6 +153,20 @@ class cell_class:
         self.U[3] = self.rho * self.v
         self.U[4] = self.rho * self.E
         self.U[5] = self.rho * self.miubl
+
+    def form_physic_vars(self):
+        """根据守恒量还原物理量"""
+        self.rho = self.FU[1]
+        if self.rho <= 1e-15: print("rho is 0 at face",self.index); exit(6)
+        self.u = self.FU[2] / self.rho
+        self.v = self.FU[3] / self.rho
+        self.miubl = self.FU[5] / self.rho
+        self.E = self.FU[4]/ self.rho
+        self.p = (gamma-1)*(self.FU[4]-self.rho*(self.u**2+self.v**2)*0.5)
+        self.H = self.E+self.p/self.rho
+        self.T = self.p/(R*self.rho)
+        self.c = math.sqrt(R*gamma*self.T)
+        self.ma = math.sqrt(self.u**2+self.v**2)/self.c
 
     def copy_grad(self,src:cell_class,ifu=True,ifv=True,ifT=True,ifmiubl=True):
         """将 `src` 的梯度复制到 `self`, 可选择复制 ugrad, vgrad, Tgrad, miublgrad"""
