@@ -32,10 +32,10 @@ def adaptive_dissipation(face:cc.face_class,direction:str):
 
     
 
-# def form_JST_dissipation_term(face : cc.face_class,
-#                               cell_b:cc.cell_class,cell_bb:cc.cell_class,
-#                               cell_f:cc.cell_class,cell_ff:cc.cell_class):
-#     """*JST*人工粘性项形成,其中单元排列为:`cell_bb|cell_b|(face)|cell_f|cell_ff`"""
-#     d1U = cell_f.U-cell_b.U
-#     d3U = cell_ff.U - 3*cell_f.U + 3*cell_b.U -cell_bb.U
-#     face.Dissipation = face.lambda_f*(face.epsilon[2]*d1U - face.epsilon[3]*d3U)
+def form_JST_dissipation_term(face : cc.face_class,
+                              cell_b:cc.cell_class,cell_bb:cc.cell_class,
+                              cell_f:cc.cell_class,cell_ff:cc.cell_class):
+    """*JST*人工粘性项形成,其中单元排列为:`cell_bb|cell_b|(face)|cell_f|cell_ff`"""
+    d1U = cell_f.U-cell_b.U
+    d3U = cell_ff.U - 3*cell_f.U + 3*cell_b.U -cell_bb.U
+    face.Dissipation = face.lambda_f*(face.epsilon[1]*d1U - face.epsilon[2]*d3U)
