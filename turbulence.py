@@ -9,7 +9,7 @@ def Spalart_Allmaras(cell:cc.cell_class):
             * (cc.T0+cc.Ts)/(cell.T+cc.Ts))   # 计算分子粘度μ,基于Suthland公式
     cell.chi = cell.U[5]/mu                   # 计算χ,修正粘度比
     cell.fv1 = (cell.chi**3)/(cell.chi**3+cc.Cv1)  # 计算阻尼函数fv1
-    mu_t = cell.U[5] * cell.fv1                    # 形成湍流粘度μt
+    mu_t = cell.U[5] * cell.fv1                    # 邢程湍流粘度μt
     mu_eff = mu + mu_t                        # 计算有效粘度μeff
     lambda_eff = mu/cc.Pr + mu_t/cc.Prt       # 计算有效导热系数λeff
     tau_xx = mu_eff * (4/3*cell.ugrad[1]-2/3*cell.vgrad[2]) # 计算切应力τxx

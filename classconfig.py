@@ -1,5 +1,6 @@
 import numpy as np
 import json
+import math
 import os
 
 # ── 从 JSON 加载物理参数与模拟设置 ──────────────────────────
@@ -19,8 +20,8 @@ except json.JSONDecodeError as e:
 # 物理常数(理想气体、Suthland)
 gamma = _cfg['physics']['gamma']
 R     = _cfg['physics']['R']
-T0    = _cfg['physics']['T0']
-Ts    = _cfg['physics']['Ts']
+T0    = _cfg['physics']['T0']          # Sutherland 参考温度
+Ts    = _cfg['physics']['Ts']          # Sutherland 常数温度
 mu0   = _cfg['physics']['mu0']
 P0    = _cfg['physics']['P0']
 c0    = _cfg['physics']['c0']
@@ -42,16 +43,32 @@ fv3 = _cfg['spalart_allmaras']['fv3']  # 湍流模型参数fv3,一般取值为1.
 kappa = _cfg['spalart_allmaras']['kappa']  # 湍流模型参数kappa,一般取值为0.41(也有取为0.4187的)
 rmax = _cfg['spalart_allmaras']['rmax']  # 湍流模型参数rmax,一般取值为10
 
-Cw1 = Cb1/(kappa**2) + (1+Cb2)*sigma
+Cw1 = Cb1/(kappa**2) + (1+Cb2)*sigma    # 湍流模型参数Cw1
 
 # JST耗散项
 k2 = _cfg['dissipation']['k2']  # JST二阶耗散项,一般取值为0.5
 k4 = _cfg['dissipation']['k4']  # JST四阶耗散项,一般取值为0.0078125
 
+# 模拟状态,标识ll的是次生变量.
+AOA = _cfg['simulation']['AOA'] # 来流攻角
+Ma = _cfg['simulation']['Ma']   # 来流马赫数
+T = _cfg['simulation']['T']     # 来流静温
+P = _cfg['simulation']['P']     # 来流静压
+cll = math.sqrt(gamma* R *T)    # 来流声速
+ull = cll*Ma*math.cos(math.radians(AOA)) # 来流x方向速度
+vll = cll*Ma*math.sin(math.radians(AOA)) # 来流y方向速度
+rholl = P/(R*T)                 # 来流密度
 
-# 模拟状态
-AOA   = _cfg['simulation']['AOA'] 
-Ma    = _cfg['simulation']['Ma']
+# Tll = T/(1+(gamma-1)/2*Ma**2)    # 来流总温
+# Pll = P*(Tll/T)**(gamma/(gamma-1))# 来流总压
+# cll = math.sqrt(gamma*R*T)       # 来流声速
+# ull = cll*Ma*math.cos(math.radians(AOA)) # 来流x方向速度
+# vll = cll*Ma*math.sin(math.radians(AOA)) # 来流y方向速度
+# rholl = Pll/(R*Tll)                       # 来流密度
+# Ell = Pll/((gamma-1)*rholl) + (ull**2+vll**2)/2 # 来流能量
+# Hll = Ell + Pll/rholl                           # 来流焓
+# mull = mu0 * (Tll/T0)**1.5 * (T0+Ts)/(Tll+Ts)   # 来流粘度
+# miublll = 0.1*mull/rholl                        # 来流动力粘度
 
 # 求解器设置
 CFL   = _cfg['simulation']['CFL']

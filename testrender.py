@@ -1,5 +1,5 @@
 """
-O 型网格可视化工具 —— 读取 fangdata.txt 并绘制环状网格
+O 型网格可视化工具 —— 读取 fangdata.txt 并邢程环状网格
 结构: i=环层(法向), j=周向点(切向), 内圈椭圆→外圈圆
 """
 
@@ -29,10 +29,10 @@ def read_mesh(meshfile):
 
 
 def plot_mesh(x, y, i_total, j_total, title="O 型网格可视化"):
-    """绘制 O 型网格 (i=环向, j=周向)"""
+    """邢程 O 型网格 (i=环向, j=周向)"""
     fig, ax = plt.subplots(figsize=(8, 8))
 
-    # ---- 绘制 i 方向线（环线 - 每个环层连起来） ----
+    # ---- 邢程 i 方向线（环线 - 每个环层连起来） ----
     for i in range(i_total):
         # 首尾闭合
         xi = np.append(x[i, :], x[i, 0])
@@ -44,7 +44,7 @@ def plot_mesh(x, y, i_total, j_total, title="O 型网格可视化"):
         else:
             ax.plot(xi, yi, 'b-', linewidth=1.0, alpha=0.6)
 
-    # ---- 绘制 j 方向线（径向线 - 连接相同角度各层） ----
+    # ---- 邢程 j 方向线（径向线 - 连接相同角度各层） ----
     for j in range(j_total):
         ax.plot(x[:, j], y[:, j], 'b-', linewidth=0.8, alpha=0.4)
 
