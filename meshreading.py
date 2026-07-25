@@ -41,12 +41,11 @@ def read_mesh(meshfile):
         cc.NodeList.append(circle)
 
     # examine if the mesh is closed
-    tol = 1e-12
     closed = True
     for i in range(1, cc.i_total + 1):
         n1 = cc.NodeList[i][1]        # the first node of each ring
         n_last = cc.NodeList[i][-1]   # the last node of each ring
-        if abs(n1.x - n_last.x) > tol or abs(n1.y - n_last.y) > tol:
+        if abs(n1.x - n_last.x) > 1e-10 or abs(n1.y - n_last.y) > 1e-10:
             # judge if the first and last node of each ring are the same (closed)
             closed = False
             break
