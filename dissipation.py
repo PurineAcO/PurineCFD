@@ -18,13 +18,19 @@ def shockwave_catcher(index:tuple,direction:str,cell_1:cc.cell_class,
         cc.shockwave_n[i][j] = abs((cell_1.p - 2*cell_2.p + cell_3.p)/
                                  (cell_1.p + 2*cell_2.p + cell_3.p))
 
-# def adaptive_dissipation(face:cc.face_class,
-#                          cell_1:cc.cell_class,cell_2:cc.cell_class,
-#                          cell_3:cc.cell_class,cell_4:cc.cell_class):
-#     """自适应耗散因子,其中`face`是当前面,其余网格均在前面"""
-#     face.epsilon[2] = cc.k2*max(cell_1.shockwave,cell_2.shockwave,
-#                                 cell_3.shockwave,cell_4.shockwave)
-#     face.epsilon[3] = max(0,cc.k4-face.epsilon[2])
+def adaptive_dissipation(face:cc.face_class,direction:str):
+    """自适应耗散因子,其中`face`是当前面,其余网格均在前面"""
+    i,j = face.index
+    if direction == "tau":
+        face.epsilon[1] = cc.k2 * max(cc.shockwave_tau[i][j],cc.shockwave_tau[i+1][j],
+                                      cc.shockwave_tau[i+2][j],cc.shockwave_tau[i+3][j])
+        face.epsilon[2] = max(0,cc.k4-face.epsilon[1])
+    if direction == "n":
+        face.epsilon[1] = cc.k2 * max(cc.shockwave_n[i][j],cc.shockwave_n[i][j+1],
+                                      cc.shockwave_n[i][j+2],cc.shockwave_n[i][j+3])
+        face.epsilon[2] = max(0,cc.k4-face.epsilon[1])
+
+    
 
 # def form_JST_dissipation_term(face : cc.face_class,
 #                               cell_b:cc.cell_class,cell_bb:cc.cell_class,
