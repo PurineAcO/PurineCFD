@@ -478,3 +478,12 @@ def form_vars():
         for j in range(1,cc.j_total+1):
             cell : cc.cell_class = cc.CellList[i][j]
             cell.form_physic_vars()
+
+def calc_residual():
+    """计算残差,基于密度"""
+    residual = 0
+    for i in range(1,cc.i_total):
+        for j in range(1,cc.j_total+1):
+            cell : cc.cell_class = cc.CellList[i][j]
+            residual += (cell.rho-cc.density_table[i][j])**2
+    return math.sqrt(residual/(cc.i_total-1)/cc.j_total)

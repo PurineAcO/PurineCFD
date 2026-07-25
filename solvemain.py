@@ -1,14 +1,14 @@
 import solvesupple as ss
 import classconfig as cc
 
-def solvering(step):
+def RK(step):
     for i in (1,cc.i_total):
         for j in (1,cc.j_total+1):
             cell : cc.cell_class = cc.CellList[i][j]
             cc.density_table[i][j] = cell.rho
             cell.U_former = cell.U
 
-    for k in range(1.5):
+    for k in range(1,5):
         mintime = ss.min_timestep()
         ss.riemann_main()
         if step==1:ss.imagination_mesh_create()
