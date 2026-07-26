@@ -1,280 +1,148 @@
-# PurineCFD
----
-
-写的太快了,没时间更新简介.暂时关闭`README.md`
-
-<!-- ## 目录
-
-- [项目概览](#项目概览)
-- [1. 配置 — `config.json` / `classconfig.py`](#1-配置--configjson--classconfigpy)
-  - [1.1 物理常数](#11-物理常数)
-  - [1.2 模拟设置](#12-模拟设置)
-  - [1.3 全局数据结构](#13-全局数据结构)
-  - [1.4 数据类](#14-数据类)
-- [2. 网格读取 — `meshreading.py`](#2-网格读取--meshreadingpy)
-- [3. 几何计算 — `geometry.py`](#3-几何计算--geometrypy)
-  - [3.1 `calc_cell_vol()`](#31-calc_cell_vol)
-  - [3.2 `calc_cell_center()`](#32-calc_cell_center)
-  - [3.3 `calc_face_direction_tau()`](#33-calc_face_direction_tau)
-  - [3.4 `calc_face_direction_n()`](#34-calc_face_direction_n)
-  - [3.5 `calc_most_near_walldistance()`](#35-calc_most_near_walldistance)
-- [4. 流场初始化 — `initialize.py`](#4-流场初始化--initializepy)
-- [5. 输出 — `output.py`](#5-输出--输出outputpy)
-  - [5.1 `geometry_debug()`](#51-geometry_debug)
-  - [5.2 `initialize_output()`](#52-initialize_output)
-  - [5.3 `formvars_main_output()`](#53-formvars_main_output)
-  - [5.4 `min_timestep_output()`](#54-min_timestep_output)
-  - [5.5 `mesh_visualization()`](#55-mesh_visualization)
-- [6. 求解辅助 — `solvesupple.py`](#6-求解辅助--solvesupplepy)
-  - [6.1 `formvars()` / `formvars_main()`](#61-formvars--formvars_main)
-  - [6.2 `min_timestep()`](#62-min_timestep)
-  - [6.3 `IM_wall()`](#63-im_wall)
-  - [6.4 `IM_far()`](#64-im_far)
-  - [6.5 `IM_LR()`](#65-im_lr)
-  - [6.6 `formIM()`](#66-formim)
-- [7. `output.txt` 解读](#7-outputtxt-解读)
-
----
-
-## 项目概览
-
-二维有限体积法 CFD 求解器,O 型结构化网格,求解 Navier-Stokes 方程.
-
-**调用链**(`main.py`):
-
-```
-main.py
-│
-├─ mr.read_mesh("fangdata.txt")
-│
-├─ geo.geometry_main("output.txt")
-│   ├─ calc_cell_vol()
-│   ├─ calc_cell_center()
-│   ├─ calc_face_direction_tau()
-│   ├─ calc_face_direction_n()
-│   ├─ calc_most_near_walldistance()
-│   └─ output.geometry_debug("output.txt")
-│
-├─ ini.initialization_main()
-│   ├─ initialization(T0, AOA, Ma, P0)
-│   └─ output.initialize_output("output.txt")
-│
-├─ ss.formvars_main()
-│
-├─ ss.min_timestep()
-│
-└─ ss.formIM()
-    ├─ IM_wall()
-    ├─ IM_far()
-    └─ IM_LR()
-
-```
-
----
-
-## 1. 配置 — `config.json` / `classconfig.py`
+# 理论手册
 
-### 1.1 物理常数
+## 1. 控制方程
 
-| 键 | 值 | 含义 |
-|----|-----|------|
-| `gamma` | 1.4 | 比热比 |
-| `R` | 287.06 | 气体常数 J/(kg·K) |
-| `T0` | 288.16 | 来流总温 K |
-| `Ts` | 110 | Sutherland 常数 K |
-| `mu0` | 1.7894×10⁻⁵ | 参考动力粘度 Pa·s |
-| `P0` | 101325 | 来流总压 Pa |
-| `c0` | 340.28 | 参考声速 m/s |
+### 1.1 N-S方程的形式
 
-### 1.2 模拟设置
+我们先简单阐述一下N-S方程的推导:考虑一个方形控制体$\delta x 
+\times \delta y$，这个方形控制体一共有四个边，我们按照习惯将其定义为N,S,E,W（东南西北），假设在中心点定义了物理量$\phi(x,y,z,t) = \phi (\boldsymbol{r},t)$，那么我们可以推出
 
-| 键 | 默认值 | 含义 |
-|----|--------|------|
-| `AOA` | 0 | 攻角 ° |
-| `Ma` | 0.2 | 马赫数 |
-| `CFL` | 0.8 | Courant 数 |
-| `IM` | 3 | 假想网格层数 (ghost cell layers) |
+$$ \phi_N = \phi + \frac{1}{2} \frac{\partial \phi}{\partial x} \delta x $$
 
-### 1.3 全局数据结构
+同理可以得到其他边界。由于我们要求气体的质量不可发生改变，那么就有一个公认的关系：内部+外部=0，也就是说：
 
-所有列表为 1-indexed(`[0]` 为空占位).
+$$ \frac{\partial}{\partial t}(\rho \delta x\delta y \delta z) + \phi_N +\phi_S+\phi_E+\phi_W = \delta V(\frac{\partial \rho}{\partial t} + \nabla \cdot \rho) = 0 $$
 
-| 变量 | 维度 | 说明 |
-|------|------|------|
-| `NodeList` | `[i_total+1][j_total+1]` | 网格节点,i=径向层,j=周向 |
-| `CellList` | `[i_total][j_total+1]` | 计算单元,i=1..i_total-1 |
-| `Facelist_tau` | `[i_total+1][j_total+1]` | 波纹圈子 |
-| `FaceList_n` | `[j_total+1][i_total]` | 波纹直径 |
-| `totaltime` | 标量 | 全局累加模拟时间 |
-| `density_table` | `[i_total+1][j_total+1]` | 密度快照 (残差计算用) |
+这样就得到了以下方程组：
 
-### 1.4 数据类
+$$\frac{\partial \rho}{\partial t} + \nabla \cdot (\rho \boldsymbol{u}) = 0$$
 
-- **`node_class`**:`x, y`(节点坐标)
-- **`cell_class`**:
-  - `index`(单元格索引);
-  - `x, y, vol`(中心+面积);`sad`(壁面距离);
-  - `rho, p, T, u, v, E, H, c, ma`(密度,压力,温度,速度,能量,焓,声速,马赫数);
-  - `miu, miubl`(粘度);
-  - `localdt`(当地时间步长);`dt`(实际推进时间步);
-  - `U[6], U_former[6]`(守恒量); 
+$$\frac{\partial (\rho \boldsymbol{u})}{\partial t} + \nabla \cdot (\rho \boldsymbol{u \otimes \boldsymbol{u}}) = -\nabla p \cdot \boldsymbol{I} + \nabla \cdot \boldsymbol{\tau}$$
 
-  方法:
-  - `copy_flow_fields(src)` — 复制 9 个流场字段; 
-  - `formvars()` — 根据原始变量计算守恒量 U[1..5]
-- **`face_class`**:`nx, ny`(法向量,模长=边长),`mx, my`(中点)
+$$\frac{\partial (\rho e)}{\partial t} + \nabla \cdot (\rho \boldsymbol{u} e ) = - \nabla \cdot (p \boldsymbol{u}) +\nabla \cdot (\lambda \nabla T) + (\boldsymbol{\tau} : \nabla \boldsymbol{u}) $$
 
----
+其中$\boldsymbol{\tau} : \nabla \boldsymbol{u}$意为双点积，表示为$\boldsymbol{a} : \boldsymbol{b} = \sum \sum a_{ij}b_{ij} = \mathrm{tr} (\boldsymbol{a}\boldsymbol{b}^\top)$
 
-## 2. 网格读取 — `meshreading.py`
+### 1.2 Guass
 
-### `read_mesh(meshfile)`
+以动量方程为例，我们先变形：
 
-1. 从首行解析沿半径方向的点数`i_total`,每一圈的点数 `j_total`,这样就会有`i_total-1`层,每层`j_total`个网格.
-2. `np.loadtxt(skiprows=1)` 读入全部 (x, y)
-3. 校验 `点数 == i_total × j_total`
-4. 逐层逐点构造 `NodeList[i][j]`
-5. **闭合检测**:若每层首尾节点坐标差 < 1e-12,弹掉尾节点,`j_total -= 1`
+$$\frac{\partial (\rho \boldsymbol{u})}{\partial t} = - \nabla \cdot (\rho \boldsymbol{u \otimes \boldsymbol{u}})  -\nabla p \cdot \boldsymbol{I} + \nabla \cdot \boldsymbol{\tau}$$
 
----
+两边对控制体$\Omega$积分，不难得到
 
-## 3. 几何计算 — `geometry.py`
+$$\int_\Omega \frac{\partial (\rho \boldsymbol{u})}{\partial t}\mathrm{d} V = \int_\Omega \left (- \nabla \cdot (\rho \boldsymbol{u \otimes \boldsymbol{u}}) -\nabla p \cdot \boldsymbol{I} + \nabla \cdot \boldsymbol{\tau}\right ) \mathrm{d} V $$
 
-### `geometry_main(debugoutput, ifrender=False, showwhat=(True, True, True))`
+其中右侧进行Guass：
 
-顺序调用下面 5 个子函数,然后输出至文件.`ifrender` 控制是否可视化,`showwhat` 三元组控制显示内容 (单元中心, 周向法向, 径向法向).
+$$ \mathrm{RHS} =- \int_{\partial \Omega}  (\rho \boldsymbol{u \otimes \boldsymbol{u}} + p \cdot \boldsymbol{I} )  \mathrm{d} S  + \int_{\partial \Omega} \boldsymbol{\tau} \mathrm{d} S $$
 
-### 3.1 `calc_cell_vol()`
+其中第一项称为**对流项**，简记为$\boldsymbol{F_f}$，第二项称为**扩散项**，简记为$\boldsymbol{F_d}$
 
-四边形对角线叉积求面积:
+### 1.3 总的原理
 
-$$V = \frac{1}{2}\left | (P_{i+1,j+1}-P_{i,j}) \times (P_{i+1,j}-P_{i,j+1}) \right |$$
+假设网格中心点可以代表整个格子的物理状态，面中心点可以代表整个面的状态，(事实上，这个假设在$\delta x \times \delta y \rightarrow 0$时是必然成立的.)，方程将变为：
 
-使用 2D 标量叉积 `x1*y2 - y1*x2`(兼容 NumPy 2.x).`j=j_total` 时 `j+1` 回绕到 `1`.
+$$ \frac{\partial (\rho \boldsymbol{u})}{\partial t} V = \sum  (\boldsymbol{F_f}+\boldsymbol{F_d} ) S $$
 
-### 3.2 `calc_cell_center()`
+那么对于所有方程都作上面的处理，尽管右侧的形式不完全一致，但是还是大体一样的。右侧的变量只和力学量显相关，在不考虑时间推进的情形下，方程变为了ode，变成了可被显式Runge-Kutta的好形式：
 
-四边形重心公式(基于格林公式的面积加权平均).
+$$ \frac{\mathrm{d} \boldsymbol{U}}{\mathrm{d} t} = \frac{\sum (\boldsymbol{F_f}+\boldsymbol{F_d}+\boldsymbol{D}+\boldsymbol{S})S}{V} $$
 
-### 3.3 `calc_face_direction_tau()`
+其中，$\boldsymbol{U}$被称为守恒量，$\boldsymbol{D}$被称为人工粘性，$\boldsymbol{S}$被称为源项
 
-周向边法向量:旋转切向量 90°,指向**径向外侧**(模长=边长).`j=j_total` 时回绕.
+## 2. Jameson-Schmidt-Turkel 格式
 
-### 3.4 `calc_face_direction_n()`
+### 2.1 中心差分
 
-径向边法向量:指向**逆时针切向**(模长=边长).索引顺序为 `[j][i]`.
+不难看出，上面指出的守恒量是定义在单元中心的，但是对流、扩散、耗散、源项都是定义在面上的，如何求得面上的物理量是一个难点。
 
-### 3.5 `calc_most_near_walldistance()`
+> 我们可以从一种简单的思路来看，假使*信息*从某个方向开始传播，那么在面上取这个*信息*作为自己求解的依据，是一种很合理的思路，这就是迎风格式(*Upwind*)，那么这就需要辨识信息传播的方向（对扩散项而言，没有十分明确的信息概念，未必一定迎风）。当然，迎风格式是目前比较主流的一种离散方法，有关它的阐述可以在之后详细讲。
 
-最内层 `Facelist_tau[1]` 为壁面,在 `[j±window]` 局部窗口内搜最近面中点距离.窗口 `max(15, j_total//5)`.
+我们这里采用了一种中心差分格式，不区分信息的传播方向，只简单的将面上的物理量由两边的网格的信息平均得到，进行平均也有多种方案，假设在任何一点满足$\boldsymbol{F_f} = \boldsymbol{\varphi(U)}$，那么
 
----
+$$\boldsymbol{\frac{F_{f1}+F_{f2}}{2}} \approx \boldsymbol{\varphi\left (\frac{U_1+U_2}{2}\right )} \approx \frac{\boldsymbol{\varphi({U_1})+\varphi({U_2})}}{2}$$
 
-## 4. 流场初始化 — `initialize.py`
+都是合理的，其精度为2阶，甚至你还可以将物理量直接平均到面上，然后进行计算（不基于守恒量）...如果你尝试将多种平均方法进行再（加权）平均，就构造出了更高阶的形式。
 
-### `initialization(T0, AOA, Ma, P0)`
+> 关于这个为何是2阶，可以基于Taylor展开，这里就不阐述了
 
-对所有单元施加均匀来流:
+### 2.2 时间推进
 
-1. $T = \frac{T_0}{1 + \frac{\gamma-1}{2}Ma^2}$
-2. $p = P_0 (\frac{T}{T_0})^{\frac{\gamma}{\gamma-1}}$
-3. $c = \sqrt{\gamma RT},\rho = \frac{p}{RT}$
-4. $u = c \cdot Ma \cdot \cos\alpha,v = c \cdot Ma \cdot \sin\alpha$
-5. $E = \frac{p}{\rho (\gamma-1)} + \frac{u^2+v^2}{2},H = E + \frac{p}{\rho}$
-6. $\mu = \mu_0 (\frac{T}{T_0})^{1.5} \left (\frac{T_0+T_s}{T+T_s}\right )$
-7. $\tilde{\nu} = 0.1\frac{\mu}{\rho}$
+为了介绍Runge-Kutta方法，我们先考察以下线性ode
 
-### `initialization_main()`
+$$ \frac{\mathrm{d} u}{\mathrm{d} t} = \lambda u $$
 
-调用 `initialization()` → `ot.initialize_output()`.
+如果进行Euler，给定一个初值$u^{(0)}$，那么$u^{(1)} = u^{(0)} + \lambda \Delta t u^{(0)} := (1+z)u^{(0)}$，考虑Taylor展开，$e^{z} = 1+z+\frac{1}{2} z^2+\cdots $，因此Euler是1阶精度的。如何构造更高阶精度的呢？答案是在指定的迭代循环进行松弛，也就是说不完全的Euler，让$u^{(i)} = (1+\alpha_i z)u^{(i-1)}$，假设我们有5步迭代，累积下来的循环是：
 
----
+$$g(z)=1 + \alpha_5 z + \alpha_5\alpha_4 z^2 +\alpha_5\alpha_4\alpha_3 z^3 +\alpha_5\alpha_4\alpha_3\alpha_2 z^4 +\alpha_5\alpha_4\alpha_3\alpha_2\alpha_1 z^5$$
 
-## 5. 输出 — `output.py`
+代入
 
-### 5.1 `geometry_debug()`
+$$e^z = 1+z+\frac{1}{2} z^2 +\frac{1}{6}z^3 + \frac{1}{24} z^4 + \frac{1}{120} z^5 +\cdots$$
 
-- **`geometry_debug(path)`**:覆盖写入,输出所有单元(index / vol / center / sad)、周向面、径向面的信息
+解得标准值为$\alpha_k = \frac{1}{m-k+1}$，然而在JST格式中使用的RK标准值为$ \alpha_1 = \frac{1}{4},\alpha_2 = \frac{1}{6},\alpha_3 = \frac{3}{8},\alpha_4 = \frac{1}{2},\alpha_5=1 $，这削减了RK的精度，因为只能匹配上第2阶，但是这样的修改并非是为了自降精度，而是出于稳定性考虑。
 
-### 5.2 `initialize_output()`
+关于稳定性的问题可以参考激波管的流动那一篇文章。这里简单的用一下思想，在修改系数后，对于纯对流方程，其解基于Fourier变换的放大因子是
 
-- **`initialize_output(path)`**:追加写入,输出 CellList[1][1] 的全部流场量作为示例
+$$g(\mathrm{i}\theta) = 1 + \mathrm{i}\theta - \frac{1}{2}\theta^2 - \mathrm{i}\left(\frac{3}{16}\right)\theta^3 + \left(\frac{1}{32}\right)\theta^4 + \mathrm{i}\left(\frac{1}{128}\right)\theta^5+o(\theta^5)$$
 
-### 5.3 `formvars_main_output()`
+这个放大因子的失稳方程$|g(\mathrm{i}\theta)| = 1$的解为$\theta=4$，然而如果不改变系数，只能允许$\theta \approx 3.3$，这个$\theta$就是表示当地时间步长的一种参数***CFL***，允许更大的CFL意味着允许更大的当地时间步长，也就意味着更少的迭代步数。
 
-- **`formvars_main_output(path)`**:追加写入,输出所有单元的守恒量 U[1..5]
+对于二维问题，CFL不是很好定义，我们考虑以下几种情况，一是速度不能穿越过多网格：$\frac{u \Delta t}{\Delta x} \le CFL$，二是声波不能穿越过多网格：$\frac{c \Delta t}{\Delta x} \le CFL$，当然这里的$\Delta x$要做一些处理，至少能够表征波在某个方向上的网格长度。对于速度问题，我们做如下处理：
 
-### 5.4 `min_timestep_output()`
+$$|u \cdot \Delta t \cdot \frac{\bar{S_x}}{V}|+|v \cdot \Delta t \cdot \frac{\bar{S_y}}{V}| \le CFL$$
 
-- **`min_timestep_output(path)`**:追加写入,输出全局最小时间步及各单元 localdt
+对于声波问题，做如下处理：
 
-### 5.5 `mesh_visualization()`
+$$|c \cdot \Delta t \cdot \frac{\bar{S_y}+\bar{S_x}}{V}| \le CFL$$
 
-- **`mesh_visualization(savepath, show_centers, show_tau, show_n)`**:绘制 O 型网格图(蓝色网格线 + 深红单元中心 + 深青/深橙法向量箭头)
+继续进行放缩，将二者左边相加使之小于CFL，这样就得到了高度保险的当地时间步长。当地时间步长在稳态求解中可以作为RANS的伪时间推进步长，而在URANS时必须使用全局最小时间步长。
 
----
+## 3. 边界条件
 
-## 6. 求解辅助 — `solvesupple.py`
+### 3.1 压力远场
 
-### 6.1 `formvars_main()`
+压力远场已在这篇文章有过详细的解释。总的来说，**特征线朝哪边，信息取哪边的值**。熵$S$和切向速度$u_\tau$的特征线是速度$u_n$，另外两个黎曼不变量$u_n \pm \frac{2a}{\gamma-1}$的特征线是$u_n\pm a$，当流动亚声速时，后两个特征线方向相反，而流动处于超声速时，二者方向相同。有了这个观点，接下来就可以判断信息取内还是取外了，当流体净流入时，前两个特征线由外向内传播，流体净流出时，前两个特征线由内向外传播。
 
-遍历所有物理单元, 调用 `cell_class.formvars()` 完成原始变量 → 守恒量变换:
+### 3.2 无滑移壁面
 
-$$\boldsymbol{U} = (\rho ,\rho u,\rho v,\rho E,\rho \tilde{\nu})\$$
+边界条件可以简单的认为是速度为0($u=v=0$)，绝热壁面($\frac{\partial T}{\partial n}=0$)，压强法向梯度为0($\frac{\partial p}{\partial n}=0$)
 
-### 6.2 `min_timestep()`
+## 4. 人工粘性
 
-基于谱半径近似计算各单元当地时间步长, 找出全局最小值,
-所有单元统一使用该最小值推进, 并累加到 `totaltime`:
+我们先给出这个$\boldsymbol{D}$
 
-$$\Delta t_{ij} = \frac{\text{CFL} \cdot V_{ij}}{|uA+vB| + |uC+vD| + c_{ij} \cdot (\sqrt{A^2+B^2} + \sqrt{C^2+D^2})}$$
+$$\boldsymbol{D} = \lambda (\epsilon^{(2)}(U_{i,j}-U_{i,j-1})-\epsilon^{(4)}(U_{i,j+1}-3U_{i,j}+3U_{i,j-1}-U_{i,j-2}))$$
 
-其中 $(A,B)$ 和 $(C,D)$ 为相邻两面法向的平均值, 周向 `j=j_total` 时回绕到 `1`.
+其中$\lambda = \frac{CFL}{2} \left(\frac{V_1}{\Delta t_1}+\frac{V_2}{\Delta t_2}\right)$，表示当地通量的Jacobi谱半径的一种近似，事实上在无粘流动中，谱半径就是$|u|+a$，倘使这是在无粘假设下，我们求出了CFL=1时候的允许特征速度，将其加权也就形成了同等意义下的谱半径。$\epsilon^{(2)} = \frac{1}{2}\max(\mu)$，$\epsilon^{(4)} = \max(0,k_4-\epsilon^{(2)})$，其中$k_4 = \frac{1}{128}$或$\frac{1}{64}$
 
-### 6.3 `IM_wall()`
+$\mu = \frac{|p_{i,j+1}-2p_{i,j}+p_{i,j-1}|}{p_{i,j+1}+2p_{i,j}+p_{i,j-1}}$为激波感知因子。通过对四周面上的激波感知因子进行最大值，即可确认激波存在的方位，更重要的，当三个压强趋同时，$\mu \approx 0$，而激波在本方位最为剧烈时，$\mu\rightarrow 1$，此时$\boldsymbol{D} = \frac{\lambda}{2}(U_{i,j}-U_{i,j-1})$，恰好是迎风格式的附加项，JST格式通过人工粘性完成了格式的切换。
 
-设置内壁面假想网格边界条件 (slip wall). 对每一层假想网格, 创建 `cell_class` 的同时直接填入边界值, 然后整行追加到 `CellList` 末尾.
+综上，JST人工粘性的数值原理是利用压力传感器作为开关，动态调节中心差分格式的截断误差阶数：在光滑流场中引入4阶粘性压制高频振荡，在激波间断处激活2阶粘性使格式退化为迎风，从而获得锐利的激波捕捉效果。
 
-- **标量** (`rho, p, T, E, H, c`): 从壁面 `CellList[1][j]` 复制
-- **速度** (`u, v`): 取对应内层 `CellList[im][j]` 的相反数 (镜像反射)
-- **马赫数**: 由假想网格自身的 $u,v,T$ 重新计算
-- **湍流变量** ($\tilde{\nu}$,`miubl`): 取对应内层的相反数
+## 5. 湍流模型
 
-### 6.4 `IM_far()`
+不难看出，上面的N-S方程有诸多变量是不封闭的，因此需要引入湍流模型进行封闭。**Spalart-Allmaras (S-A) 湍流模型**是由Philippe R. Spalart和Steven R. Allmaras于1992年提出的。它是一个单方程涡粘性模型，其核心是求解一个与湍流涡粘性相关的变量 $\tilde{\nu}$（称为“工作变量”或“改进湍流粘度”,在Fluent中被称为`nut`）的输运方程。
 
-设置压力远场假想网格边界条件. 对每一层 ghost cell, 创建 `cell_class` 的同时从最外层物理单元 (`i_total-1`) 直接复制远场值, 然后整行追加到 `CellList` 末尾. 所有 ghost 层取值相同. 复制字段: `rho, p, E, T, H, u, v, ma, miubl`.
+S-A模型不直接求解湍流涡粘系数 $\nu_t$，而是通过一个输运方程求解工作变量 $\tilde{\nu}$。湍流涡粘系数 $\nu_t$ 则由 $\tilde{\nu}$ 通过一个阻尼函数 $f_{v1}$ 计算得出：
 
-### 6.5 `IM_LR()`
+$$
+\nu_t = \tilde{\nu} f_{v1}, \quad f_{v1} = \frac{\chi^3}{\chi^3 + C_{v1}^3}, \quad \chi \equiv \frac{\tilde{\nu}}{\nu}
+$$
 
-设置 O 型网格切割线两侧的周期边界假想网格 (j 方向). 对每一径向层 `i`, 追加 `2 × IM` 个 ghost cell 到该行末尾.
+其中，$\nu$ 是分子运动粘度，$C_{v1} = 7.1$ 是一个模型常数。在近壁面处，$\tilde{\nu}$ 与壁面距离呈线性关系，这使得模型对近壁面网格分辨率不那么敏感，鲁棒性更好。S-A模型的核心是 $\tilde{\nu}$ 的输运方程。其非守恒形式可写为：
 
-- **左侧 ghost** (层 `k=1..IM`): 拷贝自右侧物理端 `CellList[i][j_total - k + 1]`
-- **右侧 ghost** (层 `k=1..IM`): 拷贝自左侧物理端 `CellList[i][k]`
-- 复制字段: `rho, p, E, T, H, u, v, ma, miubl`
+$$
+\frac{\partial \tilde{\nu}}{\partial t} + u_j \frac{\partial \tilde{\nu}}{\partial x_j} = 
+\underbrace{C_{b1} [1 - f_{t2}] \tilde{S} \tilde{\nu}}_{\text{生成项 } P}\\ 
++ \underbrace{\frac{1}{\sigma} \left\{ \nabla \cdot [(\nu + \tilde{\nu}) \nabla \tilde{\nu}] + C_{b2} (\nabla \tilde{\nu})^2 \right\}}_{\text{扩散项 } D}\\ 
+- \underbrace{\left[ C_{w1} f_w - \frac{C_{b1}}{\kappa^2} f_{t2} \right] \left( \frac{\tilde{\nu}}{d} \right)^2}_{\text{破坏（耗散）项 } \varepsilon}
++ \underbrace{f_{t1} \Delta U^2}_{\text{转捩项}}
+$$
 
-### 6.6 `formIM()`
+方程左边为时间项和对流项，右边为扩散项和由转捩项、生成项、破坏项构成的**源项**，基于上面各个项分立的思想，可以把这个粘度的输运方程也写进守恒量、对流项、扩散项、源项中。这个湍流模型还有大量的内部处理，且形式各异，这里不多赘述，具体可参阅原始论文。求解完毕`nut`后，可以以此来封闭Reynold应力$\tau_{xx},\tau_{xy},\tau_{yy}$和导热系数$\lambda_{\mathrm{eff}}$
 
-统一入口, 按顺序调用三个边界条件函数构建全部假想网格:
+## 6. 流程
 
-1. `IM_wall()` — 内壁面 ghost (i 方向下边界)
-2. `IM_far()`  — 压力远场 ghost (i 方向上边界)
-3. `IM_LR()`  — 周向周期 ghost (j 方向左右边界)
-
-#### 虚拟网格索引范围（便于查阅）
-
-按当前实现，物理网格占据 `CellList[i][j]` 的行 `i = 1 ~ i_total - 1`、列 `j = 1 ~ j_total`；随后追加的虚拟网格索引如下：
-<!-- 虚拟网格索引范围有待改写 -->
-<!-- - 壁面虚拟层： $i_{total} \sim i_{total} + IM - 1$ 行
-- 远场虚拟层： $i_{total} + IM \sim i_{total} + 2IM - 1$ 行
-- 左周期虚拟列：$j_{total} + 1 \sim j_{total} + IM$ 列
-- 右周期虚拟列：$j_{total} + IM + 1 \sim j_{total} + 2IM$ 列
-
----
-
-## 7. `output.txt` 解读
-
-以 `fangdata.txt`(10×12)为例,文件按 `geometry_debug` → `initialize_output` 顺序生成:
-
-- **单元段**:各个单元的索引`index`、面积`vol`、中心坐标`center`和壁面距离`sad`
-- **面法向量段**:周向边和径向边的索引`index`、法向量`ni, nj`和中点坐标`mx, my`
-- **流场段**:所有单元的原始变量和粘度,以及 `CellList[1][1]` 的全部流场示例  -->
+在完成网格读取、初始化后，即可进入求解过程，我们先建立守恒量$\boldsymbol{U} = (\rho,\rho u,\rho v,\rho e,\rho \tilde{\nu})^\top$，以此形成控制方程的左边。然后根据Guass定理建立面上的对流项、扩散项、人工粘性和源项，以此合成控制方程的右边。最后使用RK进行显式时间迭代，即完成1次外循环。
