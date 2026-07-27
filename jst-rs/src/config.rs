@@ -1,6 +1,8 @@
-﻿//! 姹傝В鍣ㄩ厤缃?鈥斺€?鐩存帴璇?Python 鍩虹嚎鐢ㄧ殑鍚屼竴浠?`config.json`銆?//!
-//! 鎵€鏈夋淳鐢熼噺(cv銆乧p銆佹潵娴佺姸鎬併€丆w1銆佄教冣垶 鈥?鍦?[`Config::finish`] 閲屼竴娆＄畻濂?
-//! 涔嬪悗灏辨槸鍙鐨勩€傝繖鏍蜂袱渚у疄鐜板叡浜悓涓€濂楄緭鍏?浜ゅ弶楠岃瘉鎵嶆湁鎰忎箟銆?
+//! 求解器配置 —— 直接读 Python 基线用的同一份 `config.json`。
+//!
+//! 所有派生量(cv、cp、来流状态、Cw1、ν̃∞ …)在 [`Config::finish`] 里一次算好,
+//! 之后就是只读的。这样两侧实现共享同一套输入,交叉验证才有意义。
+
 use std::path::Path;
 
 use serde::Deserialize;
@@ -10,9 +12,10 @@ pub struct Physics {
     pub gamma: f64,
     #[serde(rename = "R")]
     pub r_gas: f64,
-    /// Sutherland 鍙傝€冩俯搴?    #[serde(rename = "T0")]
+    /// Sutherland 参考温度
+    #[serde(rename = "T0")]
     pub t_ref: f64,
-    /// Sutherland 甯告暟娓╁害
+    /// Sutherland 常数温度
     #[serde(rename = "Ts")]
     pub t_suth: f64,
     pub mu0: f64,
@@ -20,20 +23,20 @@ pub struct Physics {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Simulation {
-    /// 鏉ユ祦鏀昏(搴?
+    /// 来流攻角(度)
     #[serde(rename = "AOA")]
     pub aoa: f64,
     #[serde(rename = "Ma")]
     pub mach: f64,
     #[serde(rename = "CFL")]
     pub cfl: f64,
-    /// 铏氭嫙灞傛暟
+    /// 虚拟层数
     #[serde(rename = "IM")]
     pub halo: usize,
-    /// 鏉ユ祦闈欐俯
+    /// 来流静温
     #[serde(rename = "T")]
     pub t_inf: f64,
-    /// 鏉ユ祦闈欏帇
+    /// 来流静压
     #[serde(rename = "P")]
     pub p_inf: f64,
 }
@@ -62,16 +65,18 @@ impl Default for SolverCfg {
     }
 }
 
-/// Spalart-Allmaras 涓€鏂圭▼婀嶆祦妯″瀷鐨勫父鏁般€?///
-/// 娉ㄦ剰 `sigma` 娌跨敤 Python 鍩虹嚎鐨勭害瀹?瀛樼殑鏄?**1/蟽**(=1.5,鍗?蟽_SA = 2/3)銆?#[derive(Debug, Clone, Deserialize)]
+/// Spalart-Allmaras 一方程湍流模型的常数。
+///
+/// 注意 `sigma` 沿用 Python 基线的约定,存的是 **1/σ**(=1.5,即 σ_SA = 2/3)。
+#[derive(Debug, Clone, Deserialize)]
 #[allow(non_snake_case)]
 pub struct SpalartAllmaras {
     pub Cv1: f64,
-    /// 灞傛祦鏅湕鐗规暟(绌烘皵 鈮?0.71)
+    /// 层流普朗特数(空气 ≈ 0.71)
     pub Pr: f64,
-    /// 婀嶆祦鏅湕鐗规暟(鈮?0.9)
+    /// 湍流普朗特数(≈ 0.9)
     pub Prt: f64,
-    /// 1/蟽
+    /// 1/σ
     pub sigma: f64,
     pub Cb1: f64,
     pub Cb2: f64,
@@ -86,9 +91,9 @@ pub struct SpalartAllmaras {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Dissipation {
-    /// 浜岄樁(婵€娉?鑰楁暎绯绘暟
+    /// 二阶(激波)耗散系数
     pub k2: f64,
-    /// 鍥涢樁(鑳屾櫙)鑰楁暎绯绘暟
+    /// 四阶(背景)耗散系数
     pub k4: f64,
 }
 
@@ -105,40 +110,46 @@ pub struct Config {
     pub derived: Derived,
 }
 
-/// 鐢遍厤缃竴娆℃€ф帹鍑虹殑甯搁噺銆?#[derive(Debug, Clone, Default)]
+/// 由配置一次性推出的常量。
+#[derive(Debug, Clone, Default)]
 pub struct Derived {
     pub cv: f64,
     pub cp: f64,
-    /// Cw1 = Cb1/魏虏 + (1+Cb2)/蟽
+    /// Cw1 = Cb1/κ² + (1+Cb2)/σ
     pub cw1: f64,
     pub cv1_cubed: f64,
-    /// 鏉ユ祦澹伴€?    pub c_inf: f64,
-    /// 鏉ユ祦 x/y 鏂瑰悜閫熷害
+    /// 来流声速
+    pub c_inf: f64,
+    /// 来流 x/y 方向速度
     pub u_inf: f64,
     pub v_inf: f64,
     pub rho_inf: f64,
-    /// 鏉ユ祦鍒嗗瓙绮樺害(Sutherland)
+    /// 来流分子粘度(Sutherland)
     pub mu_inf: f64,
-    /// 鏉ユ祦婀嶆祦宸ヤ綔鍙橀噺 谓虄鈭?= 0.1路谓鈭?    pub nut_inf: f64,
-    /// 鏉ユ祦鏄惁瓒呭０閫?    pub supersonic: bool,
-    /// `mu0路(T0+Ts)`,Sutherland 鍏紡閲岀殑甯告暟鍥犲瓙
+    /// 来流湍流工作变量 ν̃∞ = 0.1·ν∞
+    pub nut_inf: f64,
+    /// 来流是否超声速
+    pub supersonic: bool,
+    /// `mu0·(T0+Ts)`,Sutherland 公式里的常数因子
     pub suth_num: f64,
-    /// `1/T0`,鍏嶅幓閫愬崟鍏冪殑闄ゆ硶
+    /// `1/T0`,免去逐单元的除法
     pub inv_t_ref: f64,
-    /// `1/Pr`銆乣1/Prt`
+    /// `1/Pr`、`1/Prt`
     pub inv_pr: f64,
     pub inv_prt: f64,
-    /// `1/魏虏`
+    /// `1/κ²`
     pub inv_kappa2: f64,
-    /// `Cw3鈦禶 涓?`1 + Cw3鈦禶,fw 閲岀殑甯告暟
+    /// `Cw3⁶` 与 `1 + Cw3⁶`,fw 里的常数
     pub cw3_6: f64,
     pub one_plus_cw3_6: f64,
 }
 
-/// Sutherland 鍒嗗瓙绮樺害銆?///
-/// `x^1.5` 鍐欐垚 `x路鈭歺`:涓よ€呮暟瀛︿笂绛変环,浣?`sqrt` 鏄竴鏉＄‖浠舵寚浠?鑰?`powf`
-/// 瑕佽蛋 libm 鐨勯€氱敤骞傚嚱鏁?绾︽參涓€涓暟閲忕骇)銆傝繖涓嚱鏁版瘡涓崟鍏冩瘡绾ч兘瑕佽皟涓€娆?
-/// 鏄儹鐐逛箣涓€銆?#[inline(always)]
+/// Sutherland 分子粘度。
+///
+/// `x^1.5` 写成 `x·√x`:两者数学上等价,但 `sqrt` 是一条硬件指令,而 `powf`
+/// 要走 libm 的通用幂函数(约慢一个数量级)。这个函数每个单元每级都要调一次,
+/// 是热点之一。
+#[inline(always)]
 pub fn sutherland(mu0: f64, t: f64, t_ref: f64, t_suth: f64) -> f64 {
     let r = t / t_ref;
     mu0 * (r * r.sqrt()) * (t_ref + t_suth) / (t + t_suth)
@@ -158,7 +169,8 @@ impl Config {
         Ok(cfg)
     }
 
-    /// 璁＄畻鍏ㄩ儴娲剧敓閲忋€備慨鏀逛簡浠讳綍杈撳叆涔嬪悗閮借閲嶆柊璋冪敤銆?    pub fn finish(&mut self) {
+    /// 计算全部派生量。修改了任何输入之后都要重新调用。
+    pub fn finish(&mut self) {
         let p = &self.physics;
         let s = &self.simulation;
         let sa = &self.spalart_allmaras;
@@ -193,20 +205,22 @@ impl Config {
         };
     }
 
-    /// Sutherland 绮樺害(鐢ㄦ湰閰嶇疆鐨勫弬鑰冨€?銆傜儹鐐瑰嚱鏁?瑙?[`sutherland`] 鐨勮鏄庛€?    #[inline(always)]
+    /// Sutherland 粘度(用本配置的参考值)。热点函数,见 [`sutherland`] 的说明。
+    #[inline(always)]
     pub fn mu(&self, t: f64) -> f64 {
         let r = t * self.derived.inv_t_ref;
         r * r.sqrt() * self.derived.suth_num / (t + self.physics.t_suth)
     }
 }
 
-/// 鏄惧紡 Runge-Kutta 鐨勭骇绯绘暟銆傛湯绾у繀椤讳负 1,鍚﹀垯鏍煎紡涓嶇浉瀹广€?pub const RK_ALPHA: [f64; 5] = [0.25, 1.0 / 6.0, 0.375, 0.5, 1.0];
+/// 显式 Runge-Kutta 的级系数。末级必须为 1,否则格式不相容。
+pub const RK_ALPHA: [f64; 5] = [0.25, 1.0 / 6.0, 0.375, 0.5, 1.0];
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = include_str!("../config.json");
+    const SAMPLE: &str = include_str!("../../config.json");
 
     #[test]
     fn parses_repository_config() {
@@ -262,4 +276,3 @@ mod tests {
         assert!((cfg.mu(cfg.physics.t_ref) - cfg.physics.mu0).abs() < 1e-20);
     }
 }
-

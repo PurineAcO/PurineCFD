@@ -1,4 +1,5 @@
-﻿//! 鍛戒护琛屽叆鍙ｃ€?
+//! 命令行入口。
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -9,39 +10,46 @@ use jst::{Config, Mesh, Solver};
 #[derive(Parser, Debug)]
 #[command(name = "jst", about = "2D JST + Spalart-Allmaras finite-volume solver")]
 struct Cli {
-    /// 缃戞牸鏂囦欢
+    /// 网格文件
     #[arg(long, default_value = "fangdata.txt")]
     mesh: PathBuf,
-    /// 閰嶇疆鏂囦欢
+    /// 配置文件
     #[arg(long, default_value = "config.json")]
     config: PathBuf,
-    /// 瑕嗙洊閰嶇疆涓殑鏈€澶ц凯浠ｆ鏁?    #[arg(long)]
+    /// 覆盖配置中的最大迭代步数
+    #[arg(long)]
     steps: Option<usize>,
-    /// 缁撴灉 CSV 杈撳嚭璺緞
+    /// 结果 CSV 输出路径
     #[arg(long, default_value = "result.csv")]
     out: PathBuf,
-    /// 娈嬪樊鍘嗗彶杈撳嚭璺緞
+    /// 残差历史输出路径
     #[arg(long, default_value = "res.log")]
     reslog: PathBuf,
-    /// 鍙墦鍗版眹鎬?涓嶉€愭鍒峰睆
+    /// 只打印汇总,不逐步刷屏
     #[arg(long)]
     quiet: bool,
-    /// 绾跨▼鏁?0 = 鎸夌綉鏍艰妯¤嚜鍔ㄩ€夊彇,瑙?`choose_threads`)
+    /// 线程数(0 = 按网格规模自动选取,见 `choose_threads`)
     #[arg(long, default_value_t = 0)]
     threads: usize,
-    /// 涓嶅啓浠讳綍杈撳嚭鏂囦欢(鍩哄噯娴嬭瘯鐢?
+    /// 不写任何输出文件(基准测试用)
     #[arg(long)]
     no_output: bool,
 }
 
-/// 姣忎釜绾跨▼鑷冲皯瑕佹憡鍒拌繖涔堝鍗曞厓鎵嶅€煎緱寮€銆?///
-/// 鏈眰瑙ｅ櫒鏄?*璁垮瓨甯﹀鍙楅檺**鐨?姣忎釜鍗曞厓姣忕骇瑕佹祦杩囩害 2 KB 鐨勭姸鎬侀噺,绠楁湳寮哄害
-/// 寰堜綆銆傚洜姝ゆ湁鏁堢嚎绋嬫暟鐢卞唴瀛橀€氶亾鏁拌€岄潪鏍稿績鏁板喅瀹?鈥斺€?绾跨▼鍐嶅鍙細澧炲姞浜夌敤銆?/// 鍦?i7-14650HX(12 鏍?/ 24 绾跨▼,鍙岄€氶亾)涓婂疄娴?
+/// 每个线程至少要摊到这么多单元才值得开。
+///
+/// 本求解器是**访存带宽受限**的:每个单元每级要流过约 2 KB 的状态量,算术强度
+/// 很低。因此有效线程数由内存通道数而非核心数决定 —— 线程再多只会增加争用。
+/// 在 i7-14650HX(12 核 / 24 线程,双通道)上实测:
 ///
 /// ```text
-///   32 768 鍗曞厓:  1绾跨▼ 23.0 / 2绾跨▼ 15.7 / 4绾跨▼ 17.2 / 8绾跨▼ 24.0  ms/姝?///  294 912 鍗曞厓:  1绾跨▼ 213  / 4绾跨▼ 94.2 / 8绾跨▼ 86.3 / 24绾跨▼ 123  ms/姝?/// ```
+///   32 768 单元:  1线程 23.0 / 2线程 15.7 / 4线程 17.2 / 8线程 24.0  ms/步
+///  294 912 单元:  1线程 213  / 4线程 94.2 / 8线程 86.3 / 24线程 123  ms/步
+/// ```
 ///
-/// 鏈€浼樼偣閮借惤鍦?姣忕嚎绋?16K鈥?7K 鍗曞厓"闄勮繎,鏁呭彇 24K 浣滀负缁忛獙鍊笺€?/// 鍐呭瓨閫氶亾鏇村鐨勬湇鍔″櫒鍙互鐢?`--threads` 鎵嬪姩璋冮珮銆?const CELLS_PER_THREAD: usize = 24_576;
+/// 最优点都落在"每线程 16K–37K 单元"附近,故取 24K 作为经验值。
+/// 内存通道更多的服务器可以用 `--threads` 手动调高。
+const CELLS_PER_THREAD: usize = 24_576;
 
 fn choose_threads(n_cells: usize, available: usize) -> usize {
     n_cells.div_ceil(CELLS_PER_THREAD).clamp(1, available.max(1))

@@ -1,14 +1,18 @@
-﻿//! 閫?kernel 鐨勫井鍩哄噯 + 鏁存鍩哄噯銆?//!
-//! 姣忎釜 kernel 鍗曠嫭璁℃椂,鍙互鐪嬪嚭鐑偣鍒嗗竷骞堕槻姝㈡€ц兘鍥炲綊 鈥斺€?//! 鍙湁鏁翠綋 wall clock 鐨勮瘽,鏌愪釜 kernel 鍙樻參涓€鍊嶅彲鑳借鍒殑鍔犻€熸帺鐩栨帀銆?//!
+//! 逐 kernel 的微基准 + 整步基准。
+//!
+//! 每个 kernel 单独计时,可以看出热点分布并防止性能回归 ——
+//! 只有整体 wall clock 的话,某个 kernel 变慢一倍可能被别的加速掩盖掉。
+//!
 //! ```sh
-//! cargo bench                      # 鍏ㄩ儴
-//! cargo bench -- convection        # 鍙窇瀵规祦
+//! cargo bench                      # 全部
+//! cargo bench -- convection        # 只跑对流
 //! ```
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use jst::{config::Config, mesh::Mesh, solver::Solver, timestep};
 
-/// 涓?`tools/genmesh.py` 鍚屼竴鏃忕殑妞渾鏌?鈫?杩滃満鍦?O 鍨嬬綉鏍笺€?fn synth_mesh(ni: usize, nj: usize) -> Mesh {
+/// 与 `tools/genmesh.py` 同一族的椭圆柱 → 远场圆 O 型网格。
+fn synth_mesh(ni: usize, nj: usize) -> Mesh {
     let (a_wall, b_wall, r_far) = (1.0, 0.5, 5.0);
     let mut txt = format!("{ni} {nj}\n");
     for i in 0..ni {
@@ -24,9 +28,9 @@ use jst::{config::Config, mesh::Mesh, solver::Solver, timestep};
 }
 
 fn make_solver(ni: usize, nj: usize) -> Solver {
-    let cfg = Config::from_str(include_str!("../config.json")).unwrap();
+    let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
     let mut s = Solver::new(cfg, &synth_mesh(ni, nj));
-    // 璁╁悇鍦鸿繘鍏ユ湁浠ｈ〃鎬х殑鐘舵€?閬垮厤鍦?绮剧‘鍧囧寑"杩欑鐗规畩杈撳叆涓婃祴
+    // 让各场进入有代表性的状态,避免在"精确均匀"这种特殊输入上测
     for _ in 0..3 {
         s.advance().unwrap();
     }
@@ -34,7 +38,8 @@ fn make_solver(ni: usize, nj: usize) -> Solver {
     s
 }
 
-/// 鍗曚釜 kernel銆?fn kernels(c: &mut Criterion) {
+/// 单个 kernel。
+fn kernels(c: &mut Criterion) {
     let (ni, nj) = (129, 256);
     let cells = (ni - 1) * nj;
     let mut group = c.benchmark_group("kernel");
@@ -71,7 +76,8 @@ fn make_solver(ni: usize, nj: usize) -> Solver {
     group.finish();
 }
 
-/// 瀹屾暣鏃堕棿姝ラ殢缃戞牸瑙勬ā鐨勪几缂┿€?fn step_scaling(c: &mut Criterion) {
+/// 完整时间步随网格规模的伸缩。
+fn step_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("step");
     for &(ni, nj) in &[(17usize, 40usize), (65, 128), (129, 256), (257, 512)] {
         let cells = (ni - 1) * nj;
@@ -86,4 +92,3 @@ fn make_solver(ni: usize, nj: usize) -> Solver {
 
 criterion_group!(benches, kernels, step_scaling);
 criterion_main!(benches);
-

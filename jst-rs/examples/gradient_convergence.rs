@@ -1,4 +1,4 @@
-﻿// Probe: Green-Gauss gradient convergence on the ellipse->circle O-mesh family.
+// Probe: Green-Gauss gradient convergence on the ellipse->circle O-mesh family.
 use jst::{config::Config, geometry::Geometry, mesh::Mesh, state::Domain};
 
 fn err_at(cfg: &Config, rings: usize, nj: usize) -> (f64, f64) {
@@ -51,7 +51,7 @@ fn err_at(cfg: &Config, rings: usize, nj: usize) -> (f64, f64) {
 }
 
 fn main() {
-    let cfg = Config::from_str(include_str!("../config.json")).unwrap();
+    let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
     let mut prev: Option<(f64, f64)> = None;
     for &(r, n) in &[(9usize, 32usize), (17, 64), (33, 128), (65, 256), (129, 512)] {
         let (linf, l1) = err_at(&cfg, r, n);
@@ -66,4 +66,3 @@ fn main() {
         prev = Some((linf, l1));
     }
 }
-

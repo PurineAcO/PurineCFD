@@ -1,13 +1,17 @@
-﻿//! 绮樻€у簲鍔涖€佺儹娴佷笌 Spalart-Allmaras 婀嶆祦鎵╂暎銆?//!
-//! 姣忎釜鍗曞厓鍏堢畻鍑烘墿鏁ｅ紶閲忕殑涓ゅ垪 `(D_x, D_y)`:
+//! 粘性应力、热流与 Spalart-Allmaras 湍流扩散。
+//!
+//! 每个单元先算出扩散张量的两列 `(D_x, D_y)`:
 //!
 //! ```text
-//! D_x = [0, 蟿xx, 蟿xy, u路蟿xx + v路蟿xy + qx, 蟽鈦宦?渭+蟻谓虄)路鈭偽教?鈭倄]
-//! D_y = [0, 蟿xy, 蟿yy, u路蟿xy + v路蟿yy + qy, 蟽鈦宦?渭+蟻谓虄)路鈭偽教?鈭倅]
+//! D_x = [0, τxx, τxy, u·τxx + v·τxy + qx, σ⁻¹(μ+ρν̃)·∂ν̃/∂x]
+//! D_y = [0, τxy, τyy, u·τxy + v·τyy + qy, σ⁻¹(μ+ρν̃)·∂ν̃/∂y]
 //! ```
 //!
-//! 鍏朵腑 蟿 鐢?Stokes 鍋囪,`q = 位_eff路cp路鈭嘥`(绗﹀彿宸插苟鍏ユ€婚€氶噺,鍗充唬琛?//! `+k鈭俆/鈭倄`),`位_eff = 渭/Pr + 渭t/Prt`銆?//!
-//! 闈笂鍙栫浉閭讳袱鍗曞厓鐨勭畻鏈钩鍧囧悗鐐逛箻娉曞悜,鍐嶅湪鍗曞厓涓婃眰鐜噺銆?
+//! 其中 τ 用 Stokes 假设,`q = λ_eff·cp·∇T`(符号已并入总通量,即代表
+//! `+k∂T/∂x`),`λ_eff = μ/Pr + μt/Prt`。
+//!
+//! 面上取相邻两单元的算术平均后点乘法向,再在单元上求环量。
+
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
 use crate::config::Config;
@@ -15,16 +19,20 @@ use crate::field::Vec5;
 use crate::geometry::Geometry;
 use crate::state::{Cells, DiffTensor, Faces, Grad, TurbAux};
 
-/// S-A 闃诲凹鍑芥暟 `fv1 = 蠂鲁/(蠂鲁 + Cv1鲁)`銆?///
-/// 鍒嗘瘝閲岀殑 `Cv1` 蹇呴』鍙栫珛鏂?鈥斺€?Python 鍩虹嚎婕忎簡瀹?`BUGS.md` B2),
-/// 浣胯繎澹侀樆灏艰涓ラ噸鍓婂急銆?#[inline(always)]
+/// S-A 阻尼函数 `fv1 = χ³/(χ³ + Cv1³)`。
+///
+/// 分母里的 `Cv1` 必须取立方 —— Python 基线漏了它(`BUGS.md` B2),
+/// 使近壁阻尼被严重削弱。
+#[inline(always)]
 pub fn fv1(chi: f64, cv1_cubed: f64) -> f64 {
     let c3 = chi * chi * chi;
     c3 / (c3 + cv1_cubed)
 }
 
-/// 鍗曠偣鐨勭矘鎬?婀嶆祦鎵╂暎寮犻噺銆?///
-/// 鍐欐垚绾爣閲忓嚱鏁?涓嶆帴瑙︿换浣曟暟缁?鏃㈡柟渚垮崟娴?涔熻璋冪敤鏂瑰彲浠ヨ嚜鐢辨媶鍊熸暟缁勩€?#[inline(always)]
+/// 单点的粘性/湍流扩散张量。
+///
+/// 写成纯标量函数(不接触任何数组)既方便单测,也让调用方可以自由拆借数组。
+#[inline(always)]
 #[allow(clippy::too_many_arguments)]
 pub fn diffusion_tensor(
     cfg: &Config,
@@ -44,7 +52,8 @@ pub fn diffusion_tensor(
     let mu_eff = mu + mu_t;
     let lam_eff = mu * d.inv_pr + mu_t * d.inv_prt;
 
-    // Stokes 鍋囪涓嬬殑绮樻€у簲鍔?    let txx = mu_eff * (4.0 / 3.0 * g.dudx - 2.0 / 3.0 * g.dvdy);
+    // Stokes 假设下的粘性应力
+    let txx = mu_eff * (4.0 / 3.0 * g.dudx - 2.0 / 3.0 * g.dvdy);
     let tyy = mu_eff * (4.0 / 3.0 * g.dvdy - 2.0 / 3.0 * g.dudx);
     let txy = mu_eff * (g.dudy + g.dvdx);
 
@@ -61,7 +70,8 @@ pub fn diffusion_tensor(
     )
 }
 
-/// 鍦ㄧ墿鐞嗗崟鍏?+ 绗竴灞傝櫄鎷熷崟鍏冧笂瑁呴厤鎵╂暎寮犻噺銆?fn cell_tensors(cfg: &Config, cells: &mut Cells) {
+/// 在物理单元 + 第一层虚拟单元上装配扩散张量。
+fn cell_tensors(cfg: &Config, cells: &mut Cells) {
     let (ni, nj) = (cells.ni as isize, cells.nj as isize);
     let Cells {
         aux,
@@ -86,7 +96,7 @@ pub fn diffusion_tensor(
         )
     };
 
-    // 鐗╃悊鍗曞厓 鈥斺€?鎸夎骞惰,涓や釜杈撳嚭鏁扮粍鍚屾鍒囧垎
+    // 物理单元 —— 按行并行,两个输出数组同步切分
     aux.par_interior_rows_mut()
         .zip(diff.par_interior_rows_mut())
         .for_each(|((i, mut a_row), (_, mut d_row))| {
@@ -97,7 +107,7 @@ pub fn diffusion_tensor(
             }
         });
 
-    // 绗竴灞傝櫄鎷熷崟鍏?鏁伴噺 O(NI+NJ),涓茶鍗冲彲)
+    // 第一层虚拟单元(数量 O(NI+NJ),串行即可)
     for j in 0..nj {
         for i in [-1, ni] {
             let (a, d) = eval(i, j);
@@ -114,7 +124,8 @@ pub fn diffusion_tensor(
     }
 }
 
-/// 闈笂鐨勬墿鏁ｉ€氶噺 `陆(D_a + D_b)路n`銆?fn face_diffusion(geom: &Geometry, cells: &Cells, faces: &mut Faces) {
+/// 面上的扩散通量 `½(D_a + D_b)·n`。
+fn face_diffusion(geom: &Geometry, cells: &Cells, faces: &mut Faces) {
     let nj = geom.nj as isize;
     let d = &cells.diff;
 
@@ -137,7 +148,8 @@ pub fn diffusion_tensor(
     });
 }
 
-/// 涓€娆″畬鏁寸殑绮樻€?婀嶆祦鎵╂暎椤硅绠椼€?pub fn compute(cfg: &Config, geom: &Geometry, cells: &mut Cells, faces: &mut Faces) {
+/// 一次完整的粘性/湍流扩散项计算。
+pub fn compute(cfg: &Config, geom: &Geometry, cells: &mut Cells, faces: &mut Faces) {
     cell_tensors(cfg, cells);
     face_diffusion(geom, cells, faces);
 
@@ -158,8 +170,8 @@ mod tests {
     use crate::state::Domain;
 
     fn setup() -> (Config, Domain) {
-        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
-        let mesh = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
+        let mesh = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let geom = Geometry::build(&mesh, cfg.simulation.halo);
         let mut dom = Domain::new(geom, cfg.simulation.halo);
         dom.cells.initialize(&cfg);
@@ -183,7 +195,7 @@ mod tests {
         let cv1c = 7.1f64.powi(3);
         assert!(fv1(1e-8, cv1c).abs() < 1e-20);
         assert!((fv1(1e6, cv1c) - 1.0).abs() < 1e-12);
-        // 涓棿鍊煎繀椤荤敤 Cv1鲁 鑰岄潪 Cv1
+        // 中间值必须用 Cv1³ 而非 Cv1
         assert!((fv1(3.0, cv1c) - 27.0 / (27.0 + 357.911)).abs() < 1e-9);
     }
 
@@ -192,7 +204,7 @@ mod tests {
         let (cfg, dom) = setup();
         let g = Grad {
             dudx: 2.0,
-            dvdy: -2.0, // 鈭嚶穟 = 0
+            dvdy: -2.0, // ∇·u = 0
             dudy: 5.0,
             dvdx: -3.0,
             ..Default::default()
@@ -205,7 +217,7 @@ mod tests {
     #[test]
     fn trace_tracks_dilatation() {
         let (cfg, dom) = setup();
-        let g = Grad { dudx: 2.0, dvdy: 7.0, ..Default::default() }; // 鈭嚶穟 = 9
+        let g = Grad { dudx: 2.0, dvdy: 7.0, ..Default::default() }; // ∇·u = 9
         let (a, d) = sample(&cfg, &dom, g);
         let mu_eff = a.mu + dom.cells.u.get(0, 0)[4] * a.fv1;
         assert!((d.x[1] + d.y[2] - 2.0 / 3.0 * mu_eff * 9.0).abs() < 1e-18);
@@ -247,7 +259,8 @@ mod tests {
         }
     }
 
-    /// 鎵╂暎寮犻噺蹇呴』鍦ㄧ涓€灞傝櫄鎷熷崟鍏冧笂涔熺畻鍑烘潵 鈥斺€?杈圭晫闈㈢殑骞冲潎瑕佺敤鍒般€?    #[test]
+    /// 扩散张量必须在第一层虚拟单元上也算出来 —— 边界面的平均要用到。
+    #[test]
     fn ghost_layer_tensors_are_populated() {
         let (cfg, mut dom) = setup();
         for (i, j) in dom.cells.grad.interior().collect::<Vec<_>>() {
@@ -266,4 +279,3 @@ mod tests {
         }
     }
 }
-

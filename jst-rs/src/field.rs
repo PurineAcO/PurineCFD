@@ -1,36 +1,54 @@
-﻿//! 甯?halo(铏氭嫙灞?鐨勪簩缁存暟缁?浠ュ強浜斿垎閲忓畧鎭掑悜閲?[`Vec5`].
+//! 带 halo(虚拟层)的二维数组,以及五分量守恒向量 [`Vec5`].
 //!
-//! # 涓轰粈涔堟槸 halo
+//! # 为什么是 halo
 //!
-//! Python 鍩虹嚎鎶婅櫄鎷熷崟鍏?*杩藉姞**鍦ㄧ墿鐞嗘暟缁勪箣鍚?澹侀潰 ghost 鏀惧湪 `CellList[i_total..]`,
-//! 杩滃満 ghost 鏀惧湪鏇村悗闈?鍛ㄥ悜 ghost 杩藉姞鍦ㄦ瘡琛屾湯灏俱€備簬鏄瘡涓?kernel 閮藉緱鑷繁鍐欎竴閬?//! "濡傛灉 i==1 鍙?`CellList[i_total]`銆佸鏋?j==j_total 鍙?`CellList[j_total+IM+1]`鈥︹€?
-//! 杩欑被鏄犲皠 鈥斺€?鍏ㄩ」鐩噸澶嶄簡鍗佸嚑娆?鑰?`BUGS.md` 閲?B4/B5/B6/B8 鍥涗釜鏁板€奸敊璇?//! **鍏ㄩ儴**鍑鸿嚜杩欎簺鎵嬪啓鏄犲皠鐨勭瑪璇€?//!
-//! 杩欓噷鏀规垚:鍗曞厓鐨勪笅鏍囩┖闂寸洿鎺ユ墿灞曞埌 `[-H, N+H)`,铏氭嫙灞傚氨浣忓湪璐熶笅鏍囧拰瓒婄晫涓嬫爣涓娿€?//! 杈圭晫鏉′欢鏀舵暃鎴愬敮涓€涓€澶?[`crate::boundary::apply`],姝ゅ悗姣忎釜 kernel 閮芥槸涓嶅甫浠讳綍
-//! 鐗瑰垽鐨勭煩褰㈠惊鐜€傜储寮曞啓閿欑殑鏁寸被 bug 鍦ㄧ粨鏋勪笂琚秷鎺変簡銆?//!
+//! Python 基线把虚拟单元**追加**在物理数组之后:壁面 ghost 放在 `CellList[i_total..]`,
+//! 远场 ghost 放在更后面,周向 ghost 追加在每行末尾。于是每个 kernel 都得自己写一遍
+//! "如果 i==1 取 `CellList[i_total]`、如果 j==j_total 取 `CellList[j_total+IM+1]`……"
+//! 这类映射 —— 全项目重复了十几次,而 `BUGS.md` 里 B4/B5/B6/B8 四个数值错误
+//! **全部**出自这些手写映射的笔误。
+//!
+//! 这里改成:单元的下标空间直接扩展到 `[-H, N+H)`,虚拟层就住在负下标和越界下标上。
+//! 边界条件收敛成唯一一处 [`crate::boundary::apply`],此后每个 kernel 都是不带任何
+//! 特判的矩形循环。索引写错的整类 bug 在结构上被消掉了。
+//!
 //! ```text
 //!      j = -3 -2 -1 | 0  1  ...  NJ-1 | NJ NJ+1 NJ+2
-//! i = -3   鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?//!  ...     鈹? halo  鈹?               鈹?   halo    鈹?//! i = -1   鈹?       鈹?               鈹?           鈹?//!          鈹溾攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?//! i =  0   鈹? halo  鈹?   鐗╃悊鍗曞厓     鈹?   halo    鈹?//!  ...     鈹?       鈹?  NI x NJ      鈹?           鈹?//! i = NI-1 鈹?       鈹?               鈹?           鈹?//!          鈹溾攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?//! i = NI   鈹? halo  鈹?     halo      鈹?   halo    鈹?//! ```
+//! i = -3   ┌────────┼────────────────┼────────────┐
+//!  ...     │  halo  │                │    halo    │
+//! i = -1   │        │                │            │
+//!          ├────────┼────────────────┼────────────┤
+//! i =  0   │  halo  │    物理单元     │    halo    │
+//!  ...     │        │   NI x NJ      │            │
+//! i = NI-1 │        │                │            │
+//!          ├────────┼────────────────┼────────────┤
+//! i = NI   │  halo  │      halo      │    halo    │
+//! ```
 
 use std::ops::{Add, AddAssign, Index, IndexMut, Mul, Neg, Sub};
 
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 
-/// 浜斿垎閲忓畧鎭掑悜閲?`[蟻, 蟻u, 蟻v, 蟻E, 蟻谓虄]`銆?///
-/// 瀹氫箟浜嗗畬鏁寸殑绠楁湳杩愮畻绗?濂借鏍煎紡鍏紡鍦ㄤ唬鐮侀噷淇濇寔鏁板鍐欐硶 鈥斺€?/// 渚嬪 JST 鑰楁暎椤瑰彲浠ョ洿鎺ュ啓鎴?`lam * (d1u * eps2 - d3u * eps4)`銆?#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// 五分量守恒向量 `[ρ, ρu, ρv, ρE, ρν̃]`。
+///
+/// 定义了完整的算术运算符,好让格式公式在代码里保持数学写法 ——
+/// 例如 JST 耗散项可以直接写成 `lam * (d1u * eps2 - d3u * eps4)`。
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Vec5(pub [f64; 5]);
 
-/// 瀹堟亽鍚戦噺鐨勫垎閲忎笅鏍囥€?pub mod comp {
-    /// 瀵嗗害 蟻
+/// 守恒向量的分量下标。
+pub mod comp {
+    /// 密度 ρ
     pub const RHO: usize = 0;
-    /// x 鏂瑰悜鍔ㄩ噺 蟻u
+    /// x 方向动量 ρu
     pub const MX: usize = 1;
-    /// y 鏂瑰悜鍔ㄩ噺 蟻v
+    /// y 方向动量 ρv
     pub const MY: usize = 2;
-    /// 鎬昏兘 蟻E
+    /// 总能 ρE
     pub const RHO_E: usize = 3;
-    /// 婀嶆祦宸ヤ綔鍙橀噺 蟻谓虄
+    /// 湍流工作变量 ρν̃
     pub const RHO_NU: usize = 4;
 }
 
@@ -42,7 +60,8 @@ impl Vec5 {
         Vec5([rho, mx, my, rho_e, rho_nu])
     }
 
-    /// 鍚勫垎閲忕粷瀵瑰€肩殑鏈€澶у€?鐢ㄤ簬鏀舵暃/瀹瑰樊鍒ゆ柇銆?    #[inline]
+    /// 各分量绝对值的最大值,用于收敛/容差判断。
+    #[inline]
     pub fn amax(&self) -> f64 {
         self.0.iter().fold(0.0f64, |m, v| m.max(v.abs()))
     }
@@ -115,10 +134,12 @@ impl AddAssign for Vec5 {
     }
 }
 
-// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─────────────────────────────────────────────────────────────────────────────
 
-/// 甯?halo 鐨勪簩缁存暟缁?涓嬫爣涓烘湁绗﹀彿鏁存暟,鍚堟硶鑼冨洿 `[-halo, n+halo)`銆?///
-/// 鍐呴儴鏄涓诲簭鐨勪竴缁?`Vec`(i 涓烘參缁淬€乯 涓哄揩缁?,鍥犳娌?j 閬嶅巻鏄繛缁闂€?#[derive(Clone, Debug)]
+/// 带 halo 的二维数组,下标为有符号整数,合法范围 `[-halo, n+halo)`。
+///
+/// 内部是行主序的一维 `Vec`(i 为慢维、j 为快维),因此沿 j 遍历是连续访问。
+#[derive(Clone, Debug)]
 pub struct Field<T> {
     data: Vec<T>,
     ni: usize,
@@ -128,7 +149,8 @@ pub struct Field<T> {
 }
 
 impl<T: Clone + Default> Field<T> {
-    /// 寤虹珛 `ni x nj` 鐨勭墿鐞嗗尯,鍥涘懆鍚勭暀 `halo` 灞傘€?    pub fn new(ni: usize, nj: usize, halo: usize) -> Self {
+    /// 建立 `ni x nj` 的物理区,四周各留 `halo` 层。
+    pub fn new(ni: usize, nj: usize, halo: usize) -> Self {
         let stride = nj + 2 * halo;
         Self {
             data: vec![T::default(); (ni + 2 * halo) * stride],
@@ -154,8 +176,9 @@ impl<T> Field<T> {
         self.halo
     }
 
-    /// 鏈夌鍙蜂笅鏍?鈫?绾挎€т笅鏍囥€傝秺鐣屾椂 panic(debug 涓?release 閮芥鏌?
-    /// 杩欓噷鐨勪笅鏍囩畻鏈鏄渶瀹规槗鍐欓敊鐨勫湴鏂?涓嶅€煎緱涓虹渷涓€娆℃瘮杈冨啋椋庨櫓)銆?    #[inline(always)]
+    /// 有符号下标 → 线性下标。越界时 panic(debug 与 release 都检查:
+    /// 这里的下标算术正是最容易写错的地方,不值得为省一次比较冒风险)。
+    #[inline(always)]
     pub fn offset(&self, i: isize, j: isize) -> usize {
         let h = self.halo as isize;
         debug_assert!(
@@ -185,13 +208,15 @@ impl<T> Field<T> {
         self.data[o] = v;
     }
 
-    /// 绗?`i` 琛?鍚?halo 鍒?鐨勫彲鍙樺垏鐗囥€傝涔嬮棿浜掍笉閲嶅彔,鏄?rayon 骞惰鐨勫ぉ鐒跺崟浣嶃€?    #[inline]
+    /// 第 `i` 行(含 halo 列)的可变切片。行之间互不重叠,是 rayon 并行的天然单位。
+    #[inline]
     pub fn row_mut(&mut self, i: isize) -> &mut [T] {
         let start = self.offset(i, -(self.halo as isize));
         &mut self.data[start..start + self.stride]
     }
 
-    /// 搴曞眰杩炵画瀛樺偍,鍚?halo銆?    #[inline]
+    /// 底层连续存储,含 halo。
+    #[inline]
     pub fn raw(&self) -> &[T] {
         &self.data
     }
@@ -201,24 +226,28 @@ impl<T> Field<T> {
         &mut self.data
     }
 
-    /// 琛屽唴 j 浠?`-halo` 璧风畻鐨勫亸绉婚噺,閰嶅悎 [`Field::rows_mut`] 浣跨敤銆?    #[inline]
+    /// 行内 j 从 `-halo` 起算的偏移量,配合 [`Field::rows_mut`] 使用。
+    #[inline]
     pub fn stride(&self) -> usize {
         self.stride
     }
 
-    /// 鎸夎鍒囧垎鎴愬彲骞惰鐨勫彲鍙樺垏鐗?鍚?halo 琛?銆?    #[inline]
+    /// 按行切分成可并行的可变切片(含 halo 行)。
+    #[inline]
     pub fn rows_mut(&mut self) -> std::slice::ChunksExactMut<'_, T> {
         let s = self.stride;
         self.data.chunks_exact_mut(s)
     }
 
-    /// 閬嶅巻鍏ㄩ儴**鐗╃悊**鍗曞厓涓嬫爣銆?    #[inline]
+    /// 遍历全部**物理**单元下标。
+    #[inline]
     pub fn interior(&self) -> impl Iterator<Item = (isize, isize)> + '_ {
         let (ni, nj) = (self.ni as isize, self.nj as isize);
         (0..ni).flat_map(move |i| (0..nj).map(move |j| (i, j)))
     }
 
-    /// 閬嶅巻鍏ㄩ儴鍙鍧€涓嬫爣(鐗╃悊鍗曞厓 + 铏氭嫙灞?鍚钀?銆?    #[inline]
+    /// 遍历全部可寻址下标(物理单元 + 虚拟层,含角落)。
+    #[inline]
     pub fn all_indices(&self) -> impl Iterator<Item = (isize, isize)> + '_ {
         let h = self.halo as isize;
         let (ni, nj) = (self.ni as isize, self.nj as isize);
@@ -226,7 +255,8 @@ impl<T> Field<T> {
     }
 }
 
-/// 涓€琛岀殑鍙彉瑙嗗浘,鏀寔鏈夌鍙风殑 j 涓嬫爣(涓?[`Field`] 淇濇寔涓€鑷寸殑鍐欐硶)銆?pub struct RowMut<'a, T> {
+/// 一行的可变视图,支持有符号的 j 下标(与 [`Field`] 保持一致的写法)。
+pub struct RowMut<'a, T> {
     data: &'a mut [T],
     halo: isize,
 }
@@ -246,14 +276,22 @@ impl<T> IndexMut<isize> for RowMut<'_, T> {
     }
 }
 
-/// 鍗曚釜骞惰浠诲姟鑷冲皯瑕佸鐞嗚繖涔堝鍗曞厓銆?///
-/// 琛屾槸澶╃劧鐨勫苟琛屽崟浣?浣嗕竴琛屽彧鏈?`NJ` 涓崟鍏?鈥斺€?缃戞牸杈冪獎鏃?鍗曡鐨勮绠楅噺杩?/// 鎶典笉涓婁竴娆′换鍔℃淳鍙戠殑寮€閿€銆傚疄娴嬪湪 128x256 鐨勭綉鏍间笂涓嶈涓嬮檺鏃?24 绾跨▼姣斾覆琛?/// **鎱?3.5 鍊?*;鎸夎繖涓矑搴﹀悎骞惰涔嬪悗鎵嶈浆涓烘鍚戞敹鐩娿€?const MIN_CELLS_PER_TASK: usize = 8192;
+/// 单个并行任务至少要处理这么多单元。
+///
+/// 行是天然的并行单位,但一行只有 `NJ` 个单元 —— 网格较窄时,单行的计算量还
+/// 抵不上一次任务派发的开销。实测在 128x256 的网格上不设下限时 24 线程比串行
+/// **慢 3.5 倍**;按这个粒度合并行之后才转为正向收益。
+const MIN_CELLS_PER_TASK: usize = 8192;
 
 impl<T: Send> Field<T> {
-    /// 鎸?*鐗╃悊琛?*骞惰杩唬,浜у嚭 `(i, 璇ヨ鐨勫彲鍙樿鍥?`銆?    ///
-    /// 琛屼笌琛屼箣闂翠笉閲嶅彔,鎵€浠ュ彲浠ュ畨鍏ㄥ苟琛?kernel 鍙渶淇濊瘉"姣忎釜杈撳嚭鍏冪礌鍙
-    /// 鍐欎竴娆?,杈撳叆鍒欐潵鑷叾浠?`Field`(涓嶅悓瀵硅薄,鍊熺敤妫€鏌ュぉ鐒朵笉鍐茬獊)銆?    /// 鍥犱负姣忎釜杈撳嚭鍏冪礌鐨勫€煎彧鐢辫緭鍏ュ喅瀹?缁撴灉涓庣嚎绋嬫暟鏃犲叧 鈥斺€?骞惰涓嶅奖鍝嶅彲澶嶇幇鎬с€?    ///
-    /// 绮掑害鐢?[`MIN_CELLS_PER_TASK`] 鎺у埗,閬垮厤灏忕綉鏍间笂琚淳鍙戝紑閿€鍚冩帀銆?    pub fn par_interior_rows_mut(
+    /// 按**物理行**并行迭代,产出 `(i, 该行的可变视图)`。
+    ///
+    /// 行与行之间不重叠,所以可以安全并行;kernel 只需保证"每个输出元素只被
+    /// 写一次",输入则来自其他 `Field`(不同对象,借用检查天然不冲突)。
+    /// 因为每个输出元素的值只由输入决定,结果与线程数无关 —— 并行不影响可复现性。
+    ///
+    /// 粒度由 [`MIN_CELLS_PER_TASK`] 控制,避免小网格上被派发开销吃掉。
+    pub fn par_interior_rows_mut(
         &mut self,
     ) -> impl IndexedParallelIterator<Item = (isize, RowMut<'_, T>)> {
         let (halo, stride, ni, nj) = (self.halo, self.stride, self.ni, self.nj);
@@ -275,7 +313,8 @@ impl<T: Send> Field<T> {
             })
     }
 
-    /// 涓茶鐗堟湰,渚夸簬鍦ㄥ皬瑙勬ā鎴栬皟璇曟椂閬垮厤绾跨▼寮€閿€銆?    pub fn interior_rows_mut(&mut self) -> impl Iterator<Item = (isize, RowMut<'_, T>)> {
+    /// 串行版本,便于在小规模或调试时避免线程开销。
+    pub fn interior_rows_mut(&mut self) -> impl Iterator<Item = (isize, RowMut<'_, T>)> {
         let (halo, stride, ni) = (self.halo, self.stride, self.ni);
         self.data
             .chunks_exact_mut(stride)
@@ -300,7 +339,8 @@ impl<T: Copy> Field<T> {
         self.data[self.offset(i, j)]
     }
 
-    /// 鎶婄墿鐞嗗尯鎸夎涓诲簭鎷锋垚鎵佸钩 `Vec`(golden 姣斿鐢ㄧ殑椤哄簭)銆?    pub fn to_interior_vec(&self) -> Vec<T> {
+    /// 把物理区按行主序拷成扁平 `Vec`(golden 比对用的顺序)。
+    pub fn to_interior_vec(&self) -> Vec<T> {
         self.interior().map(|(i, j)| self.get(i, j)).collect()
     }
 }

@@ -1,15 +1,20 @@
-﻿//! O 鍨嬬綉鏍肩殑璇诲彇銆?//!
-//! 鏂囦欢鏍煎紡涓?Python 鍩虹嚎鐨?`meshreading.read_mesh` 瀹屽叏涓€鑷?:
+//! O 型网格的读取。
+//!
+//! 文件格式与 Python 基线的 `meshreading.read_mesh` 完全一致::
 //!
 //! ```text
 //! i_total j_total
-//! x y          鈫?閫愮幆銆佺幆鍐呴€嗘椂閽?鍏?i_total*j_total 琛?//! ```
+//! x y          ← 逐环、环内逆时针,共 i_total*j_total 行
+//! ```
 //!
-//! 鑻ユ瘡鐜灏捐妭鐐归噸鍚?灏佸彛缃戞牸),鑷姩鍓婃帀閲嶅鐨勬湯鐐瑰苟鎶?`j_total` 鍑?1銆?
+//! 若每环首尾节点重合(封口网格),自动削掉重复的末点并把 `j_total` 减 1。
+
 use std::fmt;
 use std::path::Path;
 
-/// 缃戞牸璇诲彇閿欒銆侾ython 鍩虹嚎鍦ㄨ繖浜涙儏褰㈠彧 `print` 涓€鍙ュ氨 `return`,璁╁悗缁唬鐮?/// 鍦ㄥ崐鍒濆鍖栫殑鍏ㄥ眬鐘舵€佷笂缁х画璺?杩欓噷鏀规垚鏄惧紡閿欒绫诲瀷,璋冪敤鏂瑰繀椤诲鐞嗐€?#[derive(Debug)]
+/// 网格读取错误。Python 基线在这些情形只 `print` 一句就 `return`,让后续代码
+/// 在半初始化的全局状态上继续跑;这里改成显式错误类型,调用方必须处理。
+#[derive(Debug)]
 pub enum MeshError {
     Io(std::io::Error),
     BadHeader(String),
@@ -46,14 +51,18 @@ impl From<std::io::Error> for MeshError {
     }
 }
 
-/// 鑺傜偣鍧愭爣銆?#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// 节点坐标。
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
 }
 
-/// O 鍨嬬綉鏍肩殑鑺傜偣闃靛垪銆?///
-/// 鑺傜偣鎸?`n_rings x n_theta` 鎺掑垪,鐜唴**涓嶅皝鍙?*(鏈偣涓庨鐐逛笉閲嶅悎),鍛ㄥ悜鐢?/// 绱㈠紩鍙栨ā瀹炵幇鍥炵粫銆傚崟鍏冩暟涓?`(n_rings-1) x n_theta`銆?#[derive(Clone, Debug)]
+/// O 型网格的节点阵列。
+///
+/// 节点按 `n_rings x n_theta` 排列,环内**不封口**(末点与首点不重合),周向由
+/// 索引取模实现回绕。单元数为 `(n_rings-1) x n_theta`。
+#[derive(Clone, Debug)]
 pub struct Mesh {
     n_rings: usize,
     n_theta: usize,
@@ -61,19 +70,23 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    /// 鐜暟(寰勫悜鑺傜偣灞傛暟)銆?    #[inline]
+    /// 环数(径向节点层数)。
+    #[inline]
     pub fn n_rings(&self) -> usize {
         self.n_rings
     }
-    /// 鍛ㄥ悜鑺傜偣鏁般€?    #[inline]
+    /// 周向节点数。
+    #[inline]
     pub fn n_theta(&self) -> usize {
         self.n_theta
     }
-    /// 寰勫悜鍗曞厓鏁?`NI = n_rings - 1`銆?    #[inline]
+    /// 径向单元数 `NI = n_rings - 1`。
+    #[inline]
     pub fn ni(&self) -> usize {
         self.n_rings - 1
     }
-    /// 鍛ㄥ悜鍗曞厓鏁?`NJ = n_theta`銆?    #[inline]
+    /// 周向单元数 `NJ = n_theta`。
+    #[inline]
     pub fn nj(&self) -> usize {
         self.n_theta
     }
@@ -82,7 +95,8 @@ impl Mesh {
         self.ni() * self.nj()
     }
 
-    /// 鍙栬妭鐐?鍛ㄥ悜鑷姩鍙栨ā鍥炵粫銆?    #[inline]
+    /// 取节点,周向自动取模回绕。
+    #[inline]
     pub fn node(&self, ring: usize, theta: usize) -> Point {
         debug_assert!(ring < self.n_rings);
         self.nodes[ring * self.n_theta + theta % self.n_theta]
@@ -151,7 +165,8 @@ impl Mesh {
         Ok(mesh)
     }
 
-    /// 鑻ユ瘡鐜灏捐妭鐐归噸鍚?鍒犳帀閲嶅鐨勬湯鐐广€?    fn trim_closing_duplicate(&mut self) {
+    /// 若每环首尾节点重合,删掉重复的末点。
+    fn trim_closing_duplicate(&mut self) {
         if self.n_theta < 2 {
             return;
         }
@@ -238,10 +253,9 @@ mod tests {
 
     #[test]
     fn reads_repository_mesh() {
-        let m = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let m = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         assert_eq!((m.n_rings(), m.n_theta()), (10, 12));
         assert_eq!(m.n_cells(), 108);
         assert!((m.node(0, 0).x - 1.0).abs() < 1e-12);
     }
 }
-

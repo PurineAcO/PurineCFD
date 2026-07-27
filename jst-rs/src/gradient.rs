@@ -1,19 +1,25 @@
-﻿//! Green-Gauss 鍗曞厓姊害銆?//!
+//! Green-Gauss 单元梯度。
+//!
 //! ```text
-//! 鈭囅唡岬⑩奔 = (1/V) 危_faces 蠁_face 路 n_face
+//! ∇φ|ᵢⱼ = (1/V) Σ_faces φ_face · n_face
 //! ```
 //!
-//! 闈笂鐨?蠁 鍙栫浉閭讳袱鍗曞厓鐨勭畻鏈钩鍧?涓€闃朵腑蹇?銆傚潎鍖€鍦轰笅 `危卤n 鈮?0` 淇濊瘉姊害绮剧‘
-//! 涓?0 鈥斺€?鐢辨湰妯″潡鐨勮嚜鐢辨潵娴佺敤渚嬫妸鍏炽€?//!
-//! 鍏釜鍒嗛噺鎵撳寘杩?[`Grad`] 涓€璧峰啓:鍥涗釜鍙橀噺鐨勬搴︽€绘槸琚矘鎬ч」涓庢簮椤瑰悓鏃舵秷璐?
-//! 鎵撳寘鍚庢湰 kernel 鍙啓涓€涓暟缁?鐪佹帀鍏矾骞惰杩唬鍣ㄧ殑鍚屾鍒囧垎寮€閿€銆?//!
-//! 娉ㄦ剰:Python 鍩虹嚎**浠庢湭璋冪敤**姊害璁＄畻(`BUGS.md` A5),瀵艰嚧绮樻€ч」涓庢箥娴佹簮椤?//! 鎭掍负 0,N-S 鏂圭▼闈欓粯閫€鍖栨垚 Euler 鏂圭▼銆?
+//! 面上的 φ 取相邻两单元的算术平均(一阶中心)。均匀场下 `Σ±n ≡ 0` 保证梯度精确
+//! 为 0 —— 由本模块的自由来流用例把关。
+//!
+//! 八个分量打包进 [`Grad`] 一起写:四个变量的梯度总是被粘性项与源项同时消费,
+//! 打包后本 kernel 只写一个数组,省掉八路并行迭代器的同步切分开销。
+//!
+//! 注意:Python 基线**从未调用**梯度计算(`BUGS.md` A5),导致粘性项与湍流源项
+//! 恒为 0,N-S 方程静默退化成 Euler 方程。
+
 use rayon::iter::ParallelIterator;
 
 use crate::geometry::Geometry;
 use crate::state::{Cells, Grad};
 
-/// 涓€涓爣閲忓満鍦ㄥ洓涓潰涓婄殑 Green-Gauss 璐＄尞銆?macro_rules! gg {
+/// 一个标量场在四个面上的 Green-Gauss 贡献。
+macro_rules! gg {
     ($src:expr, $i:expr, $j:expr, $jm:expr, $jp:expr,
      $up:expr, $dn:expr, $lf:expr, $rt:expr, $inv_v:expr) => {{
         let c = $src.get($i, $j);
@@ -28,10 +34,11 @@ use crate::state::{Cells, Grad};
     }};
 }
 
-/// 璁＄畻 u銆乿銆乀銆佄教?鍦?*鐗╃悊鍗曞厓**涓婄殑姊害,闅忓悗鎸夎竟鐣屾潯浠跺～鍏呯涓€灞傝櫄鎷熷崟鍏冦€?pub fn compute(geom: &Geometry, cells: &mut Cells) {
+/// 计算 u、v、T、ν̃ 在**物理单元**上的梯度,随后按边界条件填充第一层虚拟单元。
+pub fn compute(geom: &Geometry, cells: &mut Cells) {
     let nj = geom.nj as isize;
     let (inv_vol, tau, nrm) = (&geom.inv_vol, &geom.tau, &geom.nrm);
-    // 鎷嗗€?鍙啓 grad,璇诲叾浣欏洓涓暟缁?鈥斺€?鍊熺敤妫€鏌ヨ瘉鏄庢棤鍒悕
+    // 拆借:只写 grad,读其余四个数组 —— 借用检查证明无别名
     let Cells {
         grad,
         vx,
@@ -72,8 +79,12 @@ use crate::state::{Cells, Grad};
     fill_ghost_gradients(cells);
 }
 
-/// 绗竴灞傝櫄鎷熷崟鍏冪殑姊害 鈥斺€?鍙湁瀹冧滑浼氳 [`crate::viscous`] 鐨勯潰骞冲潎鐢ㄥ埌銆?///
-/// * 鍥哄:閫熷害涓?谓虄 鐨勬搴﹀欢鎷撹嚜璐村鍗曞厓;娓╁害姊害缃?0(缁濈儹澹?銆?/// * 杩滃満:鍏ㄩ儴缃?0(绮樻€у奖鍝嶅湪杩滃満鍙拷鐣?銆?/// * 鍛ㄥ悜:鎸夊懆鏈熺洿鎺ュ鍒躲€?fn fill_ghost_gradients(cells: &mut Cells) {
+/// 第一层虚拟单元的梯度 —— 只有它们会被 [`crate::viscous`] 的面平均用到。
+///
+/// * 固壁:速度与 ν̃ 的梯度延拓自贴壁单元;温度梯度置 0(绝热壁)。
+/// * 远场:全部置 0(粘性影响在远场可忽略)。
+/// * 周向:按周期直接复制。
+fn fill_ghost_gradients(cells: &mut Cells) {
     let (ni, nj) = (cells.ni as isize, cells.nj as isize);
     let g = &mut cells.grad;
 
@@ -98,8 +109,8 @@ mod tests {
     use crate::state::Domain;
 
     fn setup() -> (Config, Domain) {
-        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
-        let mesh = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
+        let mesh = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let geom = Geometry::build(&mesh, cfg.simulation.halo);
         let mut dom = Domain::new(geom, cfg.simulation.halo);
         dom.cells.initialize(&cfg);
@@ -107,7 +118,8 @@ mod tests {
         (cfg, dom)
     }
 
-    /// 鍧囧寑鍦虹殑姊害蹇呴』绮剧‘涓?0 鈥斺€?鍙緷璧栧害閲忛棴鍚?鏄渶閿愬埄鐨勭储寮?绗﹀彿妫€鏌ャ€?    #[test]
+    /// 均匀场的梯度必须精确为 0 —— 只依赖度量闭合,是最锐利的索引/符号检查。
+    #[test]
     fn uniform_field_has_zero_gradient() {
         let (cfg, mut dom) = setup();
         dom.cells.set_uniform(&cfg, 1.176, 69.4, 17.3, 101325.0, 1.5e-4);
@@ -126,18 +138,22 @@ mod tests {
         }
     }
 
-    /// 缃戞牸鏀舵暃鎬х爺绌?绾挎€у満涓婄殑姊害璇樊闅忓姞瀵嗚€屽噺灏忋€?    ///
-    /// 杩欓噷**涓嶈兘**瑕佹眰"绾挎€у満绮剧‘澶嶇幇" 鈥斺€?闈㈠€煎彇鐨勬槸涓や釜鍗曞厓涓績鐨勭畻鏈钩鍧?
-    /// 瀹冪瓑浜庣嚎鎬у嚱鏁板湪涓?*褰㈠績**涓偣涓婄殑鍊?鑰岄潪闈腑鐐逛笂鐨勫€?闈炲潎鍖€缃戞牸涓?    /// 浜岃€呬笉閲嶅悎,鏁呯畝鍗曞钩鍧囩殑 Green-Gauss 鍦ㄦ渶鍧忓崟鍏冧笂鍙湁涓€闃剁簿搴︺€?    /// 瀹炴祴(瑙?`examples/gradient_convergence.rs`):
+    /// 网格收敛性研究:线性场上的梯度误差随加密而减小。
+    ///
+    /// 这里**不能**要求"线性场精确复现" —— 面值取的是两个单元中心的算术平均,
+    /// 它等于线性函数在两**形心**中点上的值,而非面中点上的值;非均匀网格上
+    /// 二者不重合,故简单平均的 Green-Gauss 在最坏单元上只有一阶精度。
+    /// 实测(见 `examples/gradient_convergence.rs`):
     ///
     /// ```text
-    ///   9x32 鈫?129x512:  L1 姣忔鍔犲瘑 脳3.4 鈫?脳3.9 (鈮堜簩闃?
-    ///                    L鈭?姣忔鍔犲瘑 脳1.5 鈫?脳1.8 (鈮堜竴闃?鍙楁渶鎵洸鐨勫闈㈠崟鍏冩敮閰?
+    ///   9x32 → 129x512:  L1 每次加密 ×3.4 → ×3.9 (≈二阶)
+    ///                    L∞ 每次加密 ×1.5 → ×1.8 (≈一阶,受最扭曲的壁面单元支配)
     /// ```
     ///
-    /// 缂?1/V銆佸樊鍥犲瓙 2銆佹硶鍚戠鍙峰啓鍙嶄箣绫荤殑閿欒閮戒細璁╄宸?*涓嶆敹鏁?*,绔嬪埢鏆撮湶銆?    #[test]
+    /// 缺 1/V、差因子 2、法向符号写反之类的错误都会让误差**不收敛**,立刻暴露。
+    #[test]
     fn linear_field_gradient_converges_under_refinement() {
-        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
         let (ax, ay) = (3.7, -1.9);
 
         let err_at = |rings: usize, nj: usize| -> (f64, f64) {
@@ -164,7 +180,7 @@ mod tests {
                         .set(i, j, f(dom.geom.cx.get(i, j), dom.geom.cy.get(i, j)));
                 }
             }
-            // 鍏充簬杈圭晫闈腑鐐瑰弽灏?浣胯竟鐣岄潰涓婄殑骞冲潎鍊肩簿纭惤鍦ㄨВ鏋愬€间笂
+            // 关于边界面中点反射,使边界面上的平均值精确落在解析值上
             for j in 0..njj {
                 let w = dom.geom.tau.get(0, j);
                 dom.cells
@@ -214,7 +230,8 @@ mod tests {
         let g = &dom.cells.grad;
         for j in 0..nj {
             assert_eq!(g.get(-1, j).dudx, g.get(0, j).dudx);
-            assert_eq!(g.get(-1, j).dtdx, 0.0); // 缁濈儹澹?            assert_eq!(g.get(ni, j).dudx, 0.0); // 杩滃満
+            assert_eq!(g.get(-1, j).dtdx, 0.0); // 绝热壁
+            assert_eq!(g.get(ni, j).dudx, 0.0); // 远场
         }
         for i in 0..ni {
             assert_eq!(g.get(i, -1).dudx, g.get(i, nj - 1).dudx);
@@ -222,4 +239,3 @@ mod tests {
         }
     }
 }
-

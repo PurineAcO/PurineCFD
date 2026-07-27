@@ -1,14 +1,18 @@
-﻿//! 鏃犵矘瀵规祦閫氶噺銆?//!
-//! 涓夋:闈笂鐨勫畧鎭掗噺(鐩搁偦鍗曞厓涓€闃朵腑蹇冨钩鍧?鈫?闈笂鐨?Euler 閫氶噺 `F路n` 鈫?//! 鍗曞厓鐜噺銆傚洜涓鸿櫄鎷熷崟鍏冨凡鐢?[`crate::boundary`] 濉ソ,杩欓噷涓変釜寰幆閮芥槸
-//! 绾煩褰€侀浂鐗瑰垽銆?//!
-//! 鍗曞厓鐜噺鐨勭鍙风害瀹氫笌 [`crate::geometry`] 鐨勬硶鍚戝畾涔変竴鑷?娉曞悜鎸囧悜 i銆乯 澧炲ぇ
-//! 鐨勬柟鍚?,浜庢槸
+//! 无粘对流通量。
+//!
+//! 三步:面上的守恒量(相邻单元一阶中心平均)→ 面上的 Euler 通量 `F·n` →
+//! 单元环量。因为虚拟单元已由 [`crate::boundary`] 填好,这里三个循环都是
+//! 纯矩形、零特判。
+//!
+//! 单元环量的符号约定与 [`crate::geometry`] 的法向定义一致(法向指向 i、j 增大
+//! 的方向),于是
 //!
 //! ```text
-//! Fc(i,j) = F_蟿(i+1) 鈭?F_蟿(i) + F_n(j+1) 鈭?F_n(j)
+//! Fc(i,j) = F_τ(i+1) − F_τ(i) + F_n(j+1) − F_n(j)
 //! ```
 //!
-//! 鐢卞害閲忛棴鍚?`危卤n 鈮?0`,鍧囧寑娴佷笅 `Fc 鈮?0`(鑷敱鏉ユ祦淇濇寔鎬?銆?
+//! 由度量闭合 `Σ±n ≡ 0`,均匀流下 `Fc ≡ 0`(自由来流保持性)。
+
 use rayon::iter::ParallelIterator;
 
 use crate::config::Config;
@@ -16,7 +20,8 @@ use crate::field::{comp, Field, Vec5};
 use crate::geometry::{FaceGeom, Geometry};
 use crate::state::{Cells, Faces};
 
-/// 鐢遍潰涓婄殑瀹堟亽閲忕畻 Euler 閫氶噺 `F路n`(娉曞悜宸插惈闈㈢Н鏉?銆?#[inline(always)]
+/// 由面上的守恒量算 Euler 通量 `F·n`(法向已含面积权)。
+#[inline(always)]
 pub fn euler_flux(fu: Vec5, face: &FaceGeom, gamma: f64) -> Vec5 {
     let rho = fu[comp::RHO];
     let inv_rho = 1.0 / rho;
@@ -34,13 +39,16 @@ pub fn euler_flux(fu: Vec5, face: &FaceGeom, gamma: f64) -> Vec5 {
     )
 }
 
-/// 闈笂鐨勬棤绮橀€氶噺,tau 闈笌 n 闈㈠悇涓€閬嶃€?///
-/// 闈笂鐨勫畧鎭掗噺鍙槸涓棿鍊?鐢ㄥ眬閮ㄥ彉閲忕畻鎺夊嵆鍙?鈥斺€?涓嶅繀鍍?Python 閭ｆ牱鍐嶅瓨涓€涓?/// 鍏ㄥ満鏁扮粍(鐪佷竴娆″垎閰嶅拰涓€閬嶈瀛?銆?pub fn face_fluxes(cfg: &Config, geom: &Geometry, cells: &Cells, faces: &mut Faces) {
+/// 面上的无粘通量,tau 面与 n 面各一遍。
+///
+/// 面上的守恒量只是中间值,用局部变量算掉即可 —— 不必像 Python 那样再存一个
+/// 全场数组(省一次分配和一遍访存)。
+pub fn face_fluxes(cfg: &Config, geom: &Geometry, cells: &Cells, faces: &mut Faces) {
     let gamma = cfg.physics.gamma;
     let u = &cells.u;
     let nj = u.nj() as isize;
 
-    // tau 闈?(i, j) 鍒嗛殧鍗曞厓 (i鈭?, j) 涓?(i, j),i 鈭?[0, NI]
+    // tau 面 (i, j) 分隔单元 (i−1, j) 与 (i, j),i ∈ [0, NI]
     let tau_geom = &geom.tau;
     faces.tau.flux.par_interior_rows_mut().for_each(|(i, mut row)| {
         for j in 0..nj {
@@ -49,7 +57,7 @@ pub fn euler_flux(fu: Vec5, face: &FaceGeom, gamma: f64) -> Vec5 {
         }
     });
 
-    // n 闈?(i, j) 鍒嗛殧鍗曞厓 (i, j鈭?) 涓?(i, j),j 鈭?[0, NJ)
+    // n 面 (i, j) 分隔单元 (i, j−1) 与 (i, j),j ∈ [0, NJ)
     let n_geom = &geom.nrm;
     faces.nrm.flux.par_interior_rows_mut().for_each(|(i, mut row)| {
         for j in 0..nj {
@@ -59,7 +67,8 @@ pub fn euler_flux(fu: Vec5, face: &FaceGeom, gamma: f64) -> Vec5 {
     });
 }
 
-/// 鍗曞厓涓婄殑瀵规祦鐜噺銆?pub fn assemble(geom: &Geometry, faces: &Faces, out: &mut Field<Vec5>) {
+/// 单元上的对流环量。
+pub fn assemble(geom: &Geometry, faces: &Faces, out: &mut Field<Vec5>) {
     let (tau, nrm) = (&faces.tau.flux, &faces.nrm.flux);
     let nj = geom.nj as isize;
     out.par_interior_rows_mut().for_each(|(i, mut row)| {
@@ -70,7 +79,8 @@ pub fn euler_flux(fu: Vec5, face: &FaceGeom, gamma: f64) -> Vec5 {
     });
 }
 
-/// 涓€娆″畬鏁寸殑瀵规祦椤硅绠椼€?pub fn compute(cfg: &Config, geom: &Geometry, cells: &mut Cells, faces: &mut Faces) {
+/// 一次完整的对流项计算。
+pub fn compute(cfg: &Config, geom: &Geometry, cells: &mut Cells, faces: &mut Faces) {
     face_fluxes(cfg, geom, cells, faces);
     assemble(geom, faces, &mut cells.fc);
 }
@@ -82,8 +92,8 @@ mod tests {
     use crate::state::Domain;
 
     fn setup() -> (Config, Domain) {
-        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
-        let mesh = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
+        let mesh = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let geom = Geometry::build(&mesh, cfg.simulation.halo);
         let mut dom = Domain::new(geom, cfg.simulation.halo);
         dom.cells.initialize(&cfg);
@@ -118,9 +128,11 @@ mod tests {
         }
     }
 
-    /// 鑷敱鏉ユ祦淇濇寔鎬?鍧囧寑鍦轰笅骞冲潎娴佺殑瀵规祦娈嬪樊搴斾负鏈哄櫒绮惧害銆?    ///
-    /// 蹇呴』**缁曡繃**杈圭晫鏉′欢閾轰竴涓惈铏氭嫙灞傜殑鍧囧寑鍦?鍥哄闀滃儚浼氳璐村澶勪笉鍐嶅潎鍖€
-    /// (鐗╃悊涓婃纭?浣嗛偅妫€楠岀殑鏄埆鐨勪笢瑗?銆?    #[test]
+    /// 自由来流保持性:均匀场下平均流的对流残差应为机器精度。
+    ///
+    /// 必须**绕过**边界条件铺一个含虚拟层的均匀场:固壁镜像会让贴壁处不再均匀
+    /// (物理上正确,但那检验的是别的东西)。
+    #[test]
     fn free_stream_is_preserved() {
         let (cfg, mut dom) = setup();
         dom.cells.set_uniform(&cfg, 1.176, 69.4, 17.3, 101325.0, 1.5e-4);
@@ -144,7 +156,8 @@ mod tests {
         }
     }
 
-    /// 闀滃儚澹侀潰 鈬?澹侀潰涓婄殑娉曞悜璐ㄩ噺閫氶噺涓?0銆?    #[test]
+    /// 镜像壁面 ⇒ 壁面上的法向质量通量为 0。
+    #[test]
     fn no_mass_flux_through_the_wall() {
         let (cfg, mut dom) = setup();
         compute(&cfg, &dom.geom, &mut dom.cells, &mut dom.faces);
@@ -154,10 +167,11 @@ mod tests {
         }
     }
 
-    /// 鍐呴儴闈㈤€氶噺鍦ㄥ崟鍏冪幆閲忎腑涓や袱鎶垫秷:鍏ㄥ満 危 Fc 鍙墿杈圭晫璐＄尞銆?    #[test]
+    /// 内部面通量在单元环量中两两抵消:全场 Σ Fc 只剩边界贡献。
+    #[test]
     fn interior_fluxes_telescope() {
         let (cfg, mut dom) = setup();
-        // 閫犱竴涓潪鍧囧寑鍦?纭繚鎶垫秷涓嶆槸鍥犱负閫氶噺鎭掔瓑
+        // 造一个非均匀场,确保抵消不是因为通量恒等
         for (i, j) in dom.cells.rho.interior().collect::<Vec<_>>() {
             let s = 1.0 + 0.03 * i as f64 + 0.01 * j as f64;
             dom.cells.rho.set(i, j, cfg.derived.rho_inf * s);
@@ -172,7 +186,8 @@ mod tests {
             .interior()
             .map(|(i, j)| dom.cells.fc.get(i, j)[comp::RHO])
             .sum();
-        // 鍛ㄥ悜闈㈠畬鍏ㄦ姷娑?鍛ㄦ湡),寰勫悜鍙墿澹侀潰涓庤繙鍦?        let ni = dom.cells.ni as isize;
+        // 周向面完全抵消(周期),径向只剩壁面与远场
+        let ni = dom.cells.ni as isize;
         let boundary: f64 = (0..dom.cells.nj as isize)
             .map(|j| {
                 dom.faces.tau.flux.get(ni, j)[comp::RHO] - dom.faces.tau.flux.get(0, j)[comp::RHO]
@@ -184,4 +199,3 @@ mod tests {
         );
     }
 }
-

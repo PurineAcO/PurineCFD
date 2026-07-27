@@ -1,19 +1,22 @@
-﻿//! JST 浜哄伐绮樻€?Jameson-Schmidt-Turkel scalar dissipation)銆?//!
-//! 涓績鏍煎紡鏈韩娌℃湁鑰楁暎,闇€瑕佹樉寮忓姞涓婁簩闃?鍥涢樁浜哄伐绮樻€?
+//! JST 人工粘性(Jameson-Schmidt-Turkel scalar dissipation)。
+//!
+//! 中心格式本身没有耗散,需要显式加上二阶/四阶人工粘性:
 //!
 //! ```text
-//! D_face = 位_f 路 ( 蔚虏 路(U鈧?鈭?U鈧? 鈭?蔚鈦绰?U鈧娾倞 鈭?3U鈧?+ 3U鈧?鈭?U鈧嬧倠) )
+//! D_face = λ_f · ( ε² ·(U₊ − U₋) − ε⁴·(U₊₊ − 3U₊ + 3U₋ − U₋₋) )
 //! ```
 //!
-//! * 鍥涢樁椤规彁渚涜儗鏅樆灏?鎶戝埗涓績鏍煎紡鐨勫鍋惰В鑰?瀹冨浜屾浠ヤ笅鐨勫垎甯冩亽涓?0,
-//!   鍥犺€屼笉褰卞搷鏍煎紡绮惧害);
-//! * 浜岄樁椤瑰彧鍦ㄦ縺娉㈤檮杩戞墦寮€,鐢卞帇鍔涙帰娴嬪櫒
-//!   `谓 = |p鈧?鈭?2p鈧€ + p鈧妡 / (p鈧?+ 2p鈧€ + p鈧?` 瑙﹀彂;
-//! * `蔚虏 = k鈧偮穖ax(谓)`(闈袱渚у悇涓や釜鍗曞厓),`蔚鈦?= max(0, k鈧?鈭?蔚虏)` 鈥斺€?婵€娉㈠
-//!   鍥涢樁椤硅鍏虫帀,閬垮厤楂橀樁椤瑰湪闂存柇闄勮繎浜х敓鎸崱銆?//!
-//! Python 鍩虹嚎鐢?`shockwave_tau[k]`(浠ヨ櫄鎷熷崟鍏?`k鈭?` 涓轰腑蹇?闂存帴琛ㄨ揪鎺㈡祴鍣?
-//! 闇€瑕佷竴鏁村鍋忕Щ鎹㈢畻,`BUGS.md` B6 姝ｆ槸杩欓噷绱㈠紩鍐欓噸浜嗐€傝繖閲岀洿鎺ユ妸鎺㈡祴鍣?*瀹氫箟
-//! 鍦ㄥ崟鍏冧笂**,鍥涚偣鍙栨渶澶у€煎啓鎴愬绉扮殑 `max(谓[i鈭?..i+1])`,涓嶅啀鏈夊亸绉汇€?
+//! * 四阶项提供背景阻尼,抑制中心格式的奇偶解耦(它对二次以下的分布恒为 0,
+//!   因而不影响格式精度);
+//! * 二阶项只在激波附近打开,由压力探测器
+//!   `ν = |p₋ − 2p₀ + p₊| / (p₋ + 2p₀ + p₊)` 触发;
+//! * `ε² = k₂·max(ν)`(面两侧各两个单元),`ε⁴ = max(0, k₄ − ε²)` —— 激波处
+//!   四阶项被关掉,避免高阶项在间断附近产生振荡。
+//!
+//! Python 基线用 `shockwave_tau[k]`(以虚拟单元 `k−2` 为中心)间接表达探测器,
+//! 需要一整套偏移换算,`BUGS.md` B6 正是这里索引写重了。这里直接把探测器**定义
+//! 在单元上**,四点取最大值写成对称的 `max(ν[i−2..i+1])`,不再有偏移。
+
 use rayon::iter::ParallelIterator;
 
 use crate::config::Config;
@@ -21,20 +24,24 @@ use crate::field::{Field, Vec5};
 use crate::geometry::Geometry;
 use crate::state::{Cells, Eps, Faces};
 
-/// 鍘嬪姏鎺㈡祴鍣?`谓 = |p鈧?鈭?2p鈧€ + p鈧妡 / (p鈧?+ 2p鈧€ + p鈧?`銆?#[inline(always)]
+/// 压力探测器 `ν = |p₋ − 2p₀ + p₊| / (p₋ + 2p₀ + p₊)`。
+#[inline(always)]
 pub fn pressure_sensor(pm: f64, p0: f64, pp: f64) -> f64 {
     ((pm - 2.0 * p0 + pp) / (pm + 2.0 * p0 + pp)).abs()
 }
 
-/// 鐢卞洓鐐规帰娴嬪櫒鏈€澶у€煎緱鍒?`(蔚虏, 蔚鈦?`銆?#[inline(always)]
+/// 由四点探测器最大值得到 `(ε², ε⁴)`。
+#[inline(always)]
 pub fn adaptive_coefficients(nu_max: f64, k2: f64, k4: f64) -> Eps {
     let e2 = k2 * nu_max;
     Eps { e2, e4: (k4 - e2).max(0.0) }
 }
 
-/// 闈㈣氨鍗婂緞 位f 鈥斺€旂敤涓や晶鍗曞厓鐨?`V/螖t_local` 杩戜技,涓?CFL 鎶垫秷鍚庡嵆涓烘€昏氨鍗婂緞銆?///
-/// `V/螖t` 鍏堝湪鍗曞厓涓婄畻涓€閬?`NI路NJ` 娆￠櫎娉?,闈笂鍙仛骞冲潎;鐩存帴鍦ㄩ潰寰幆閲岄櫎
-/// 浼氬仛绾﹀洓鍊嶇殑闄ゆ硶銆?fn spectral_radii(cfg: &Config, geom: &Geometry, cells: &Cells, faces: &mut Faces) {
+/// 面谱半径 λf ——用两侧单元的 `V/Δt_local` 近似,与 CFL 抵消后即为总谱半径。
+///
+/// `V/Δt` 先在单元上算一遍(`NI·NJ` 次除法),面上只做平均;直接在面循环里除
+/// 会做约四倍的除法。
+fn spectral_radii(cfg: &Config, geom: &Geometry, cells: &Cells, faces: &mut Faces) {
     let (ni, nj) = (geom.ni as isize, geom.nj as isize);
     let cfl = cfg.simulation.cfl;
     let (vol, dt) = (&geom.vol, &cells.localdt);
@@ -48,7 +55,8 @@ pub fn adaptive_coefficients(nu_max: f64, k2: f64, k4: f64) -> Eps {
     let ratio = &*spec_ratio;
 
     tau.lambda.par_interior_rows_mut().for_each(|(i, mut row)| {
-        // 杈圭晫闈袱渚у彧鏈変竴涓墿鐞嗗崟鍏?閫€鍖栦负鍗曚晶鍙栧€?        let (a, b) = (i.clamp(0, ni - 1), (i - 1).clamp(0, ni - 1));
+        // 边界面两侧只有一个物理单元,退化为单侧取值
+        let (a, b) = (i.clamp(0, ni - 1), (i - 1).clamp(0, ni - 1));
         for j in 0..nj {
             row[j] = 0.5 * cfl * (ratio.get(a, j) + ratio.get(b, j));
         }
@@ -61,7 +69,8 @@ pub fn adaptive_coefficients(nu_max: f64, k2: f64, k4: f64) -> Eps {
     });
 }
 
-/// 鍗曞厓涓婄殑鍘嬪姏鎺㈡祴鍣?鑼冨洿瑕嗙洊鍒拌櫄鎷熷眰(鍥涚偣鍙栨渶澶у€奸渶瑕?`[-2, N+1]`)銆?fn sensors(geom: &Geometry, cells: &Cells, faces: &mut Faces) {
+/// 单元上的压力探测器,范围覆盖到虚拟层(四点取最大值需要 `[-2, N+1]`)。
+fn sensors(geom: &Geometry, cells: &Cells, faces: &mut Faces) {
     let (ni, nj) = (geom.ni as isize, geom.nj as isize);
     let p = &cells.p;
     for i in -2..=ni + 1 {
@@ -80,7 +89,8 @@ pub fn adaptive_coefficients(nu_max: f64, k2: f64, k4: f64) -> Eps {
     }
 }
 
-/// 鑷€傚簲鑰楁暎绯绘暟 `蔚虏`銆乣蔚鈦碻銆?fn coefficients(cfg: &Config, geom: &Geometry, faces: &mut Faces) {
+/// 自适应耗散系数 `ε²`、`ε⁴`。
+fn coefficients(cfg: &Config, geom: &Geometry, faces: &mut Faces) {
     let (k2, k4) = (cfg.dissipation.k2, cfg.dissipation.k4);
     let nj = geom.nj as isize;
     let Faces {
@@ -94,7 +104,7 @@ pub fn adaptive_coefficients(nu_max: f64, k2: f64, k4: f64) -> Eps {
 
     tau.eps.par_interior_rows_mut().for_each(|(i, mut row)| {
         for j in 0..nj {
-            // 鍏充簬闈?i 瀵圭О鐨勫洓鐐规ā鏉?鍗曞厓 i鈭?, i鈭?, i, i+1
+            // 关于面 i 对称的四点模板:单元 i−2, i−1, i, i+1
             let m = sensor_i
                 .get(i - 2, j)
                 .max(sensor_i.get(i - 1, j))
@@ -115,7 +125,8 @@ pub fn adaptive_coefficients(nu_max: f64, k2: f64, k4: f64) -> Eps {
     });
 }
 
-/// 闈笂鐨?JST 鑰楁暎椤广€?fn face_dissipation(geom: &Geometry, cells: &Cells, faces: &mut Faces) {
+/// 面上的 JST 耗散项。
+fn face_dissipation(geom: &Geometry, cells: &Cells, faces: &mut Faces) {
     let nj = geom.nj as isize;
     let u = &cells.u;
     let Faces { tau, nrm, .. } = faces;
@@ -154,13 +165,15 @@ pub fn adaptive_coefficients(nu_max: f64, k2: f64, k4: f64) -> Eps {
     }
 }
 
-/// 鎶?[`crate::state::FaceWork`] 鎷嗘垚"璇昏嫢骞?+ 鍐欎竴涓?鐨勪笉鐩镐氦鍊熺敤銆?struct FaceWorkSplit<'a> {
+/// 把 [`crate::state::FaceWork`] 拆成"读若干 + 写一个"的不相交借用。
+struct FaceWorkSplit<'a> {
     lambda: &'a Field<f64>,
     eps: &'a Field<Eps>,
     out: &'a mut Field<Vec5>,
 }
 
-/// 鍗曞厓涓婄殑浜哄伐绮樻€х幆閲忋€?fn assemble(geom: &Geometry, faces: &Faces, out: &mut Field<Vec5>) {
+/// 单元上的人工粘性环量。
+fn assemble(geom: &Geometry, faces: &Faces, out: &mut Field<Vec5>) {
     let nj = geom.nj as isize;
     let (tau, nrm) = (&faces.tau.dissipation, &faces.nrm.dissipation);
     out.par_interior_rows_mut().for_each(|(i, mut row)| {
@@ -171,7 +184,8 @@ pub fn adaptive_coefficients(nu_max: f64, k2: f64, k4: f64) -> Eps {
     });
 }
 
-/// 涓€娆″畬鏁寸殑 JST 浜哄伐绮樻€ц绠椼€?pub fn compute(cfg: &Config, geom: &Geometry, cells: &mut Cells, faces: &mut Faces) {
+/// 一次完整的 JST 人工粘性计算。
+pub fn compute(cfg: &Config, geom: &Geometry, cells: &mut Cells, faces: &mut Faces) {
     spectral_radii(cfg, geom, cells, faces);
     sensors(geom, cells, faces);
     coefficients(cfg, geom, faces);
@@ -186,8 +200,8 @@ mod tests {
     use crate::state::Domain;
 
     fn setup() -> (Config, Domain) {
-        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
-        let mesh = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
+        let mesh = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let geom = Geometry::build(&mesh, cfg.simulation.halo);
         let mut dom = Domain::new(geom, cfg.simulation.halo);
         dom.cells.initialize(&cfg);
@@ -214,7 +228,8 @@ mod tests {
         }
     }
 
-    /// 寮烘縺娉㈠ 蔚虏 澧炲ぇ銆佄碘伌 琚叧鎺夈€?    #[test]
+    /// 强激波处 ε² 增大、ε⁴ 被关掉。
+    #[test]
     fn fourth_order_coefficient_switches_off_at_a_shock() {
         let (k2, k4) = (0.5, 0.0078125);
         let smooth = adaptive_coefficients(0.0, k2, k4);
@@ -269,31 +284,33 @@ mod tests {
         }
     }
 
-    /// 鍏夋粦娴佸満閲屼簩闃?婵€娉?鑰楁暎搴斿綋鍏抽棴,鍙墿鍥涢樁鑳屾櫙鑰楁暎銆?    #[test]
+    /// 光滑流场里二阶(激波)耗散应当关闭,只剩四阶背景耗散。
+    #[test]
     fn smooth_flow_leaves_only_background_dissipation() {
         let (cfg, mut dom) = setup();
         compute(&cfg, &dom.geom, &mut dom.cells, &mut dom.faces);
         for (i, j) in dom.faces.tau.eps.interior() {
             let e = dom.faces.tau.eps.get(i, j);
-            // 杩滃満杈圭晫鍘嬪姏鐢遍粠鏇兼眰瑙ｇ粰鍑?涓?p鈭?鍙埌 ~1e-11 鐩稿绮惧害,
-            // 鍥犳鎺㈡祴鍣ㄦ湁涓€涓瀬灏忕殑鏈簳,鑰岄潪绮剧‘ 0
+            // 远场边界压力由黎曼求解给出,与 p∞ 只到 ~1e-11 相对精度,
+            // 因此探测器有一个极小的本底,而非精确 0
             assert!(e.e2 < 1e-12 * cfg.dissipation.k4, "eps2 = {:e} at ({i},{j})", e.e2);
             assert!((e.e4 - cfg.dissipation.k4).abs() < 1e-12 * cfg.dissipation.k4);
         }
     }
 
-    /// 鍥涢樁椤瑰浜屾浠ヤ笅鍒嗗竷鎭掍负 0 鈥斺€?瀹冧笉鐮村潖鏍煎紡绮惧害鐨勫叧閿€?    #[test]
+    /// 四阶项对二次以下分布恒为 0 —— 它不破坏格式精度的关键。
+    #[test]
     fn fourth_difference_annihilates_quadratics() {
         let q = |x: f64| 3.0 * x * x + 2.0 * x + 5.0;
         let d3 = q(1.0) - 3.0 * q(0.0) + 3.0 * q(-1.0) - q(-2.0);
         assert!(d3.abs() < 1e-12, "d3 = {d3}");
     }
 
-    /// 鍥涢樁椤瑰涓夋鍒嗗竷缁欏嚭甯告暟(鍗冲畠纭疄鏄笁闃跺樊鍒嗙畻瀛?銆?    #[test]
+    /// 四阶项对三次分布给出常数(即它确实是三阶差分算子)。
+    #[test]
     fn fourth_difference_of_a_cubic_is_constant() {
         let c = |x: f64| 2.0 * x * x * x;
         let d3 = c(1.0) - 3.0 * c(0.0) + 3.0 * c(-1.0) - c(-2.0);
         assert!((d3 - 2.0 * 6.0).abs() < 1e-12, "d3 = {d3}");
     }
 }
-

@@ -1,12 +1,21 @@
-﻿//! 娴佸満鐘舵€佺殑瀛樺偍甯冨眬銆?//!
-//! # 鍒嗙粍 SoA
+//! 流场状态的存储布局。
 //!
-//! 涓嶆槸"姣忎釜鏍囬噺涓€涓暟缁?(绾?SoA),涔熶笉鏄?Python 閭ｆ牱"姣忎釜鍗曞厓涓€涓璞?(AoS),
-//! 鑰屾槸**鎸変娇鐢ㄦ柟寮忓垎缁?*:鎬绘槸琚竴璧疯鍐欑殑閲忔墦鍖呮垚涓€涓皬缁撴瀯浣?鍚勭粍涔嬮棿浠嶇劧
-//! 鏄嫭绔嬬殑杩炵画鏁扮粍銆?//!
-//! * [`Grad`] 鈥斺€?鍏釜姊害鍒嗛噺銆傜矘鎬ч」涓庢簮椤逛竴娆¤鐢ㄥ叏閮ㄥ叓涓?鎵撳寘鍚?//!   `gradient::compute` 鍙啓涓€涓暟缁?涓嶅繀 `zip` 鍏釜骞惰杩唬鍣?//!   (rayon 鐨勫璺?`zip` 瑕佹眰鍚勮矾鍚屾鍒囧垎,寮€閿€杩滈珮浜庢敹鐩?銆?//! * [`TurbAux`] 鈥斺€?`渭, 蠂, fv1`,S-A 鐨勪笁涓腑闂撮噺,鎬绘槸鍚屾椂浜х敓銆佸悓鏃舵秷璐广€?//! * [`DiffTensor`] 鈥斺€?鎵╂暎寮犻噺鐨勪袱鍒?闈笂鍋氬钩鍧囨椂鎴愬浣跨敤銆?//! * [`Vec5`] 鈥斺€?浜斾釜瀹堟亽鍒嗛噺,鎵€鏈夐€氶噺杩愮畻閮戒綔鐢ㄥ湪鏁寸粍涓娿€?//!
-//! 杩欐牱姣忎釜 kernel 閮芥槸"璇昏嫢骞叉暟缁勩€佸啓**涓€涓?*鏁扮粍",鍊熺敤妫€鏌ョ洿鎺ヨ瘉鏄庢棤鍒悕,
-//! rayon 骞惰鏃笉闇€瑕?`unsafe` 涔熶笉闇€瑕佸厠闅嗕腑闂寸粨鏋溿€?
+//! # 分组 SoA
+//!
+//! 不是"每个标量一个数组"(纯 SoA),也不是 Python 那样"每个单元一个对象"(AoS),
+//! 而是**按使用方式分组**:总是被一起读写的量打包成一个小结构体,各组之间仍然
+//! 是独立的连续数组。
+//!
+//! * [`Grad`] —— 八个梯度分量。粘性项与源项一次要用全部八个;打包后
+//!   `gradient::compute` 只写一个数组,不必 `zip` 八个并行迭代器
+//!   (rayon 的多路 `zip` 要求各路同步切分,开销远高于收益)。
+//! * [`TurbAux`] —— `μ, χ, fv1`,S-A 的三个中间量,总是同时产生、同时消费。
+//! * [`DiffTensor`] —— 扩散张量的两列,面上做平均时成对使用。
+//! * [`Vec5`] —— 五个守恒分量,所有通量运算都作用在整组上。
+//!
+//! 这样每个 kernel 都是"读若干数组、写**一个**数组",借用检查直接证明无别名,
+//! rayon 并行既不需要 `unsafe` 也不需要克隆中间结果。
+
 use crate::config::Config;
 use crate::field::{Field, Vec5};
 use crate::geometry::Geometry;
@@ -14,7 +23,8 @@ use crate::geometry::Geometry;
 pub type F64Field = Field<f64>;
 pub type Vec5Field = Field<Vec5>;
 
-/// 鍗曞厓涓婄殑 Green-Gauss 姊害銆?#[derive(Clone, Copy, Debug, Default)]
+/// 单元上的 Green-Gauss 梯度。
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Grad {
     pub dudx: f64,
     pub dudy: f64,
@@ -26,69 +36,76 @@ pub struct Grad {
     pub dnutdy: f64,
 }
 
-/// S-A 妯″瀷鐨勯€愬崟鍏冧腑闂撮噺銆?#[derive(Clone, Copy, Debug, Default)]
+/// S-A 模型的逐单元中间量。
+#[derive(Clone, Copy, Debug, Default)]
 pub struct TurbAux {
-    /// 鍒嗗瓙绮樺害 渭(Sutherland)
+    /// 分子粘度 μ(Sutherland)
     pub mu: f64,
-    /// 蠂 = 蟻谓虄/渭
+    /// χ = ρν̃/μ
     pub chi: f64,
-    /// 闃诲凹鍑芥暟 fv1
+    /// 阻尼函数 fv1
     pub fv1: f64,
 }
 
-/// 绮樻€?婀嶆祦鎵╂暎寮犻噺鐨勪袱鍒椼€?#[derive(Clone, Copy, Debug, Default)]
+/// 粘性/湍流扩散张量的两列。
+#[derive(Clone, Copy, Debug, Default)]
 pub struct DiffTensor {
     pub x: Vec5,
     pub y: Vec5,
 }
 
-/// 闈笂鐨勮嚜閫傚簲鑰楁暎绯绘暟銆?#[derive(Clone, Copy, Debug, Default)]
+/// 面上的自适应耗散系数。
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Eps {
-    /// 浜岄樁(婵€娉?绯绘暟 蔚虏
+    /// 二阶(激波)系数 ε²
     pub e2: f64,
-    /// 鍥涢樁(鑳屾櫙)绯绘暟 蔚鈦?    pub e4: f64,
+    /// 四阶(背景)系数 ε⁴
+    pub e4: f64,
 }
 
-/// 鍗曞厓涓績閲忋€?#[derive(Clone, Debug)]
+/// 单元中心量。
+#[derive(Clone, Debug)]
 pub struct Cells {
     pub ni: usize,
     pub nj: usize,
 
-    // 鈹€鈹€ 瀹堟亽閲?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-    /// `[蟻, 蟻u, 蟻v, 蟻E, 蟻谓虄]`
+    // ── 守恒量 ──────────────────────────────────────────────
+    /// `[ρ, ρu, ρv, ρE, ρν̃]`
     pub u: Vec5Field,
-    /// 鏃堕棿姝ュ紑濮嬫椂鐨勫畧鎭掗噺(RK 鍚勭骇閮藉熀浜庡畠鏇存柊)
+    /// 时间步开始时的守恒量(RK 各级都基于它更新)
     pub u_former: Vec5Field,
 
-    // 鈹€鈹€ 鍘熷鍙橀噺 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+    // ── 原始变量 ────────────────────────────────────────────
     pub rho: F64Field,
     pub p: F64Field,
     pub t: F64Field,
     pub vx: F64Field,
     pub vy: F64Field,
-    /// 鍗曚綅璐ㄩ噺鎬昏兘
+    /// 单位质量总能
     pub e: F64Field,
-    /// 鍗曚綅璐ㄩ噺鎬荤創
+    /// 单位质量总焓
     pub h: F64Field,
-    /// 澹伴€?    pub c: F64Field,
-    /// 婀嶆祦宸ヤ綔鍙橀噺 谓虄
+    /// 声速
+    pub c: F64Field,
+    /// 湍流工作变量 ν̃
     pub nut: F64Field,
 
-    // 鈹€鈹€ 瀵煎嚭閲?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+    // ── 导出量 ──────────────────────────────────────────────
     pub grad: Field<Grad>,
     pub aux: Field<TurbAux>,
     pub diff: Field<DiffTensor>,
 
-    // 鈹€鈹€ 娈嬪樊鍒嗛」 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-    /// 瀵规祦閫氶噺
+    // ── 残差分项 ────────────────────────────────────────────
+    /// 对流通量
     pub fc: Vec5Field,
-    /// 绮樻€?婀嶆祦鎵╂暎閫氶噺
+    /// 粘性/湍流扩散通量
     pub fv: Vec5Field,
-    /// JST 浜哄伐绮樻€?    pub fd: Vec5Field,
-    /// S-A 婧愰」(鍙湁绗?5 鍒嗛噺闈為浂,鏁呭瓨鏍囬噺)
+    /// JST 人工粘性
+    pub fd: Vec5Field,
+    /// S-A 源项(只有第 5 分量非零,故存标量)
     pub src: F64Field,
 
-    /// 褰撳湴鏃堕棿姝?閫愬崟鍏?JST 璋卞崐寰勯渶瑕?
+    /// 当地时间步(逐单元,JST 谱半径需要)
     pub localdt: F64Field,
 }
 
@@ -121,7 +138,8 @@ impl Cells {
         }
     }
 
-    /// 鐢卞師濮嬪彉閲忚閰嶅畧鎭掗噺 `U`銆?    #[inline]
+    /// 由原始变量装配守恒量 `U`。
+    #[inline]
     pub fn pack(&mut self, i: isize, j: isize) {
         let rho = self.rho.get(i, j);
         self.u.set(
@@ -137,7 +155,8 @@ impl Cells {
         );
     }
 
-    /// 閫愬崟鍏冨啓鍏ヤ竴缁勪竴鑷寸殑鍘熷鍙橀噺骞惰閰嶅畧鎭掗噺銆?    #[inline]
+    /// 逐单元写入一组一致的原始变量并装配守恒量。
+    #[inline]
     fn write_state(&mut self, i: isize, j: isize, s: &PrimState) {
         self.rho.set(i, j, s.rho);
         self.p.set(i, j, s.p);
@@ -151,7 +170,8 @@ impl Cells {
         self.pack(i, j);
     }
 
-    /// 鐢ㄦ潵娴佹潯浠跺垵濮嬪寲鍏ㄩ儴**鐗╃悊**鍗曞厓銆?    pub fn initialize(&mut self, cfg: &Config) {
+    /// 用来流条件初始化全部**物理**单元。
+    pub fn initialize(&mut self, cfg: &Config) {
         let s = PrimState::from_primitives(
             cfg,
             cfg.simulation.p_inf / (cfg.physics.r_gas * cfg.simulation.t_inf),
@@ -169,8 +189,13 @@ impl Cells {
         }
     }
 
-    /// 鎶?*鍏ㄩ儴**鍗曞厓(鍚櫄鎷熷眰)缃负鍚屼竴鍧囧寑鐘舵€併€?    ///
-    /// 杩欐槸鑷敱鏉ユ祦淇濇寔鎬ч獙璇佺殑鍓嶆彁:鏍煎紡鑻ョ鏁ｄ竴鑷?鍧囧寑鍦轰笅瀵规祦娈嬪樊銆佷汉宸?    /// 绮樻€т笌姊害閮藉簲绮剧‘涓?0銆傛敞鎰忓畠浼氳鐩栬櫄鎷熷眰,鍥犳**涓嶈兘**鍏堣皟鐢?    /// [`crate::boundary::apply`] 鈥斺€?鍥哄闀滃儚浼氳璐村澶勪笉鍐嶅潎鍖€(閭ｆ槸鐗╃悊涓婃纭?    /// 鐨?浣嗕笉鏄繖閲岃妫€楠岀殑鎬ц川)銆?    pub fn set_uniform(&mut self, cfg: &Config, rho: f64, vx: f64, vy: f64, p: f64, nut: f64) {
+    /// 把**全部**单元(含虚拟层)置为同一均匀状态。
+    ///
+    /// 这是自由来流保持性验证的前提:格式若离散一致,均匀场下对流残差、人工
+    /// 粘性与梯度都应精确为 0。注意它会覆盖虚拟层,因此**不能**先调用
+    /// [`crate::boundary::apply`] —— 固壁镜像会让贴壁处不再均匀(那是物理上正确
+    /// 的,但不是这里要检验的性质)。
+    pub fn set_uniform(&mut self, cfg: &Config, rho: f64, vx: f64, vy: f64, p: f64, nut: f64) {
         let s = PrimState::from_primitives(cfg, rho, vx, vy, p, nut);
         for (i, j) in self.rho.all_indices().collect::<Vec<_>>() {
             self.write_state(i, j, &s);
@@ -178,7 +203,8 @@ impl Cells {
     }
 }
 
-/// 涓€缁勮嚜娲界殑鍘熷鍙橀噺銆?#[derive(Clone, Copy, Debug, Default)]
+/// 一组自洽的原始变量。
+#[derive(Clone, Copy, Debug, Default)]
 pub struct PrimState {
     pub rho: f64,
     pub p: f64,
@@ -192,7 +218,8 @@ pub struct PrimState {
 }
 
 impl PrimState {
-    /// 鐢?(蟻, u, v, p, 谓虄) 琛ュ叏 T銆丒銆丠銆乧銆?    pub fn from_primitives(cfg: &Config, rho: f64, vx: f64, vy: f64, p: f64, nut: f64) -> Self {
+    /// 由 (ρ, u, v, p, ν̃) 补全 T、E、H、c。
+    pub fn from_primitives(cfg: &Config, rho: f64, vx: f64, vy: f64, p: f64, nut: f64) -> Self {
         let gamma = cfg.physics.gamma;
         let t = p / (cfg.physics.r_gas * rho);
         let e = p / (rho * (gamma - 1.0)) + 0.5 * (vx * vx + vy * vy);
@@ -210,7 +237,8 @@ impl PrimState {
     }
 }
 
-/// 闈炵墿鐞嗙姸鎬?瀵嗗害鎴栧帇鍔涢潪姝?銆?#[derive(Debug, Clone, Copy)]
+/// 非物理状态(密度或压力非正)。
+#[derive(Debug, Clone, Copy)]
 pub struct NonPhysical {
     pub i: isize,
     pub j: isize,
@@ -230,17 +258,21 @@ impl std::fmt::Display for NonPhysical {
 
 impl std::error::Error for NonPhysical {}
 
-/// 闈笂鐨勫伐浣滈噺銆?///
-/// 娉ㄦ剰杩欓噷**涓嶅瓨**闈笂鐨勫畧鎭掗噺 鈥斺€?瀹冨彧鏄绠楁棤绮橀€氶噺鐨勪腑闂村€?鐩存帴鍦?/// [`crate::convection`] 鐨勫惊鐜噷鐢ㄥ眬閮ㄥ彉閲忕畻鎺?鐪佷竴涓暟缁勫拰涓€閬嶈瀛樸€?#[derive(Clone, Debug)]
+/// 面上的工作量。
+///
+/// 注意这里**不存**面上的守恒量 —— 它只是计算无粘通量的中间值,直接在
+/// [`crate::convection`] 的循环里用局部变量算掉,省一个数组和一遍访存。
+#[derive(Clone, Debug)]
 pub struct FaceWork {
-    /// 鏃犵矘閫氶噺 F路n
+    /// 无粘通量 F·n
     pub flux: Vec5Field,
-    /// 绮樻€?婀嶆祦鎵╂暎閫氶噺
+    /// 粘性/湍流扩散通量
     pub diff: Vec5Field,
-    /// JST 浜哄伐绮樻€?    pub dissipation: Vec5Field,
-    /// 闈㈣氨鍗婂緞 位f
+    /// JST 人工粘性
+    pub dissipation: Vec5Field,
+    /// 面谱半径 λf
     pub lambda: F64Field,
-    /// 鑷€傚簲鑰楁暎绯绘暟
+    /// 自适应耗散系数
     pub eps: Field<Eps>,
 }
 
@@ -256,17 +288,18 @@ impl FaceWork {
     }
 }
 
-/// tau 闈?+ n 闈㈢殑宸ヤ綔閲?澶栧姞 JST 婵€娉㈡帰娴嬪櫒銆?#[derive(Clone, Debug)]
+/// tau 面 + n 面的工作量,外加 JST 激波探测器。
+#[derive(Clone, Debug)]
 pub struct Faces {
-    /// 鍛ㄥ悜闈?`(NI+1) x NJ`
+    /// 周向面,`(NI+1) x NJ`
     pub tau: FaceWork,
-    /// 寰勫悜闈?`NI x NJ`
+    /// 径向面,`NI x NJ`
     pub nrm: FaceWork,
-    /// 浠?*鍗曞厓**涓轰腑蹇冪殑鍘嬪姏鎺㈡祴鍣?i 鏂瑰悜
+    /// 以**单元**为中心的压力探测器,i 方向
     pub sensor_i: F64Field,
-    /// 鍚屼笂,j 鏂瑰悜
+    /// 同上,j 方向
     pub sensor_j: F64Field,
-    /// 閫愬崟鍏冪殑 `V/螖t_local`,闈㈣氨鍗婂緞鍙栧畠鐨勪袱渚у钩鍧?閬垮厤鍦ㄩ潰寰幆閲岄噸澶嶅仛闄ゆ硶)
+    /// 逐单元的 `V/Δt_local`,面谱半径取它的两侧平均(避免在面循环里重复做除法)
     pub spec_ratio: F64Field,
 }
 
@@ -275,7 +308,7 @@ impl Faces {
         Self {
             tau: FaceWork::new(ni + 1, nj),
             nrm: FaceWork::new(ni, nj),
-            // 鎺㈡祴鍣ㄤ互鍗曞厓涓轰腑蹇?蔚虏 鐨勫洓鐐瑰彇鍊奸渶瑕?[-2, N+1],halo=3 瓒冲
+            // 探测器以单元为中心,ε² 的四点取值需要 [-2, N+1],halo=3 足够
             sensor_i: Field::new(ni, nj, halo),
             sensor_j: Field::new(ni, nj, halo),
             spec_ratio: Field::new(ni, nj, halo),
@@ -283,7 +316,8 @@ impl Faces {
     }
 }
 
-/// 渚夸簬鏁翠綋浼犻€掔殑姹傝В鍩熴€?#[derive(Clone, Debug)]
+/// 便于整体传递的求解域。
+#[derive(Clone, Debug)]
 pub struct Domain {
     pub geom: Geometry,
     pub cells: Cells,
@@ -307,8 +341,8 @@ mod tests {
     use crate::mesh::Mesh;
 
     fn setup() -> (Config, Domain) {
-        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
-        let mesh = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
+        let mesh = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let geom = Geometry::build(&mesh, cfg.simulation.halo);
         let mut dom = Domain::new(geom, cfg.simulation.halo);
         dom.cells.initialize(&cfg);
@@ -352,7 +386,7 @@ mod tests {
 
     #[test]
     fn prim_state_is_thermodynamically_consistent() {
-        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
         let s = PrimState::from_primitives(&cfg, 1.2, 70.0, -15.0, 1.0e5, 2e-4);
         assert!((s.p - s.rho * cfg.physics.r_gas * s.t).abs() < 1e-9);
         assert!((s.h - (s.e + s.p / s.rho)).abs() < 1e-9);
@@ -380,4 +414,3 @@ mod tests {
         assert_eq!(dom.cells.rho.get(ni + h - 1, nj + h - 1), 2.0);
     }
 }
-

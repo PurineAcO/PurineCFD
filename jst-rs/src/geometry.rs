@@ -1,23 +1,35 @@
-﻿//! 鏈夐檺浣撶Н娉曠殑鍑犱綍搴﹂噺:鍗曞厓闈㈢Н/褰㈠績銆侀潰娉曞悜/涓偣銆佸闈㈣窛绂汇€?//!
-//! # 涓嬫爣绾﹀畾
+//! 有限体积法的几何度量:单元面积/形心、面法向/中点、壁面距离。
 //!
-//! 璁?`NI = n_rings-1` 涓哄緞鍚戝崟鍏冩暟銆乣NJ = n_theta` 涓哄懆鍚戝崟鍏冩暟銆?//!
-//! * 鍗曞厓 `(i, j)`,`i 鈭?[0,NI)`,`j 鈭?[0,NJ)`;鍥涗釜椤剁偣鏄妭鐐?//!   `(i,j) (i+1,j) (i+1,j+1) (i,j+1)`銆?//! * **tau 闈?*(鍛ㄥ悜杈?涓€鍦堝湀鐨?娉㈢汗"):`i 鈭?[0,NI]`,`j 鈭?[0,NJ)`銆?//!   tau 闈?`i` 鍒嗛殧鍗曞厓 `i-1` 涓?`i`,娉曞悜鎸囧悜寰勫悜澶栦晶銆?//! * **n 闈?*(寰勫悜杈?"娉㈢汗鍦堢殑鐩村緞"):`i 鈭?[0,NI)`,`j 鈭?[0,NJ)`銆?//!   n 闈?`j` 鍒嗛殧鍗曞厓 `j-1` 涓?`j`,娉曞悜鎸囧悜鍛ㄥ悜 +j 渚с€?//!
-//! 娉曞悜鐨?*妯￠暱绛変簬杈归暱**(鍗抽潰绉姞鏉冩硶鍚?,鍥犳閫氶噺鍙互鐩存帴鐐逛箻娉曞悜鑰屼笉蹇?//! 鍙﹀涔橀潰绉€?//!
-//! 杩欏绾﹀畾淇濊瘉浜嗗害閲忛棴鍚?`n_蟿(i+1) 鈭?n_蟿(i) + n_n(j+1) 鈭?n_n(j) 鈮?0`,
-//! 瀹冩鏄嚜鐢辨潵娴佷繚鎸佹€х殑鍏呰鏉′欢(瑙?`tests/properties.rs`)銆?
+//! # 下标约定
+//!
+//! 记 `NI = n_rings-1` 为径向单元数、`NJ = n_theta` 为周向单元数。
+//!
+//! * 单元 `(i, j)`,`i ∈ [0,NI)`,`j ∈ [0,NJ)`;四个顶点是节点
+//!   `(i,j) (i+1,j) (i+1,j+1) (i,j+1)`。
+//! * **tau 面**(周向边,一圈圈的"波纹"):`i ∈ [0,NI]`,`j ∈ [0,NJ)`。
+//!   tau 面 `i` 分隔单元 `i-1` 与 `i`,法向指向径向外侧。
+//! * **n 面**(径向边,"波纹圈的直径"):`i ∈ [0,NI)`,`j ∈ [0,NJ)`。
+//!   n 面 `j` 分隔单元 `j-1` 与 `j`,法向指向周向 +j 侧。
+//!
+//! 法向的**模长等于边长**(即面积加权法向),因此通量可以直接点乘法向而不必
+//! 另外乘面积。
+//!
+//! 这套约定保证了度量闭合:`n_τ(i+1) − n_τ(i) + n_n(j+1) − n_n(j) ≡ 0`,
+//! 它正是自由来流保持性的充要条件(见 `tests/properties.rs`)。
+
 use crate::field::Field;
 use crate::mesh::Mesh;
 
-/// 鍗曢潰鐨勫嚑浣曢噺銆?#[derive(Clone, Copy, Debug, Default)]
+/// 单面的几何量。
+#[derive(Clone, Copy, Debug, Default)]
 pub struct FaceGeom {
-    /// 闈㈢Н鍔犳潈娉曞悜鐨?x 鍒嗛噺(妯￠暱 = 杈归暱)
+    /// 面积加权法向的 x 分量(模长 = 边长)
     pub nx: f64,
-    /// 闈㈢Н鍔犳潈娉曞悜鐨?y 鍒嗛噺
+    /// 面积加权法向的 y 分量
     pub ny: f64,
-    /// 闈腑鐐?x
+    /// 面中点 x
     pub mx: f64,
-    /// 闈腑鐐?y
+    /// 面中点 y
     pub my: f64,
 }
 
@@ -28,27 +40,31 @@ impl FaceGeom {
     }
 }
 
-/// 鍏ㄩ儴涓庢椂闂存棤鍏崇殑鍑犱綍閲?setup 闃舵绠椾竴娆″悗鍙銆?#[derive(Clone, Debug)]
+/// 全部与时间无关的几何量,setup 阶段算一次后只读。
+#[derive(Clone, Debug)]
 pub struct Geometry {
     pub ni: usize,
     pub nj: usize,
-    /// 鍗曞厓闈㈢Н(浜岀淮涓嬬殑"浣撶Н")
+    /// 单元面积(二维下的"体积")
     pub vol: Field<f64>,
-    /// 鍗曞厓褰㈠績 x / y
+    /// 单元形心 x / y
     pub cx: Field<f64>,
     pub cy: Field<f64>,
-    /// 鍗曞厓涓績鍒板闈㈢殑鏈€杩戣窛绂?S-A 妯″瀷鐨?d)
+    /// 单元中心到壁面的最近距离(S-A 模型的 d)
     pub wall_dist: Field<f64>,
-    /// `1/V`銆傛搴︺€佹畫宸洿鏂伴兘瑕佹寜浣撶Н褰掍竴,棰勫厛绠楀ソ鐪佹帀閫愬崟鍏冮€愮骇鐨勯櫎娉?    pub inv_vol: Field<f64>,
-    /// `1/d虏`銆係-A 婧愰」閲?`谓虄/(魏虏d虏)` 涓?`(谓虄/d)虏` 閮借鐢?    pub inv_wall_dist_sq: Field<f64>,
-    /// 鍛ㄥ悜闈?`(NI+1) x NJ`
+    /// `1/V`。梯度、残差更新都要按体积归一,预先算好省掉逐单元逐级的除法
+    pub inv_vol: Field<f64>,
+    /// `1/d²`。S-A 源项里 `ν̃/(κ²d²)` 与 `(ν̃/d)²` 都要用
+    pub inv_wall_dist_sq: Field<f64>,
+    /// 周向面,`(NI+1) x NJ`
     pub tau: Field<FaceGeom>,
-    /// 寰勫悜闈?`NI x NJ`
+    /// 径向面,`NI x NJ`
     pub nrm: Field<FaceGeom>,
 }
 
 impl Geometry {
-    /// 鍛ㄥ悜涓嬫爣 +1 鐨勫洖缁曘€?    #[inline(always)]
+    /// 周向下标 +1 的回绕。
+    #[inline(always)]
     pub fn jp1(&self, j: isize) -> isize {
         if j + 1 < self.nj as isize {
             j + 1
@@ -62,14 +78,14 @@ impl Geometry {
         let mut g = Self {
             ni,
             nj,
-            // 鍗曞厓閲忛渶瑕?halo:铏氭嫙鍗曞厓涔熷弬涓?JST 妯℃澘,vol 鐢ㄤ簬婧愰」缂╂斁
+            // 单元量需要 halo:虚拟单元也参与 JST 模板,vol 用于源项缩放
             vol: Field::new(ni, nj, halo),
             cx: Field::new(ni, nj, halo),
             cy: Field::new(ni, nj, halo),
             wall_dist: Field::new(ni, nj, halo),
             inv_vol: Field::new(ni, nj, halo),
             inv_wall_dist_sq: Field::new(ni, nj, halo),
-            // 闈㈤噺涓嶉渶瑕?halo:鎵€鏈?kernel 鍙湪 [0,NI]x[0,NJ) 涓婅闂潰
+            // 面量不需要 halo:所有 kernel 只在 [0,NI]x[0,NJ) 上访问面
             tau: Field::new(ni + 1, nj, 0),
             nrm: Field::new(ni, nj, 0),
         };
@@ -86,8 +102,11 @@ impl Geometry {
         g
     }
 
-    /// 鍗曞厓闈㈢Н涓庡舰蹇冦€?    ///
-    /// 闈㈢Н鐢?瀵硅绾垮弶绉?鍏紡 `A = 陆|AC 脳 DB|` 鈥斺€?瀵逛换鎰忎笉鑷氦鐨勫洓杈瑰舰閮界簿纭€?    /// 褰㈠績鐢ㄥ杈瑰舰褰㈠績鐨勬爣鍑嗗叕寮?shoelace 鍔犳潈)銆?    fn build_cells(&mut self, mesh: &Mesh) {
+    /// 单元面积与形心。
+    ///
+    /// 面积用"对角线叉积"公式 `A = ½|AC × DB|` —— 对任意不自交的四边形都精确。
+    /// 形心用多边形形心的标准公式(shoelace 加权)。
+    fn build_cells(&mut self, mesh: &Mesh) {
         for i in 0..self.ni {
             for j in 0..self.nj {
                 let a = mesh.node(i, j);
@@ -125,8 +144,9 @@ impl Geometry {
         }
     }
 
-    /// 闈㈡硶鍚戜笌涓偣銆?    fn build_faces(&mut self, mesh: &Mesh) {
-        // tau 闈?娌垮懆鍚戠殑杈?(i,j) 鈫?(i,j+1),娉曞悜 (dy, 鈭抎x) 鎸囧悜寰勫悜澶栦晶
+    /// 面法向与中点。
+    fn build_faces(&mut self, mesh: &Mesh) {
+        // tau 面:沿周向的边 (i,j) → (i,j+1),法向 (dy, −dx) 指向径向外侧
         for i in 0..=self.ni {
             for j in 0..self.nj {
                 let a = mesh.node(i, j);
@@ -144,7 +164,8 @@ impl Geometry {
                 );
             }
         }
-        // n 闈?娌垮緞鍚戠殑杈?(i,j) 鈫?(i+1,j),娉曞悜 (鈭抎y, dx) 鎸囧悜鍛ㄥ悜 +j 渚?        for i in 0..self.ni {
+        // n 面:沿径向的边 (i,j) → (i+1,j),法向 (−dy, dx) 指向周向 +j 侧
+        for i in 0..self.ni {
             for j in 0..self.nj {
                 let a = mesh.node(i, j);
                 let b = mesh.node(i + 1, j);
@@ -163,10 +184,12 @@ impl Geometry {
         }
     }
 
-    /// 姣忎釜鍗曞厓涓績鍒板闈㈢殑鏈€杩戣窛绂汇€?    ///
-    /// 澹侀潰鍗崇 0 灞?tau 闈€傚彧鍦ㄥ懆鍚?卤`window` 鐨勮寖鍥村唴鎼滅储:O 鍨嬬綉鏍间笂鏈€杩戠殑
-    /// 澹侀潰鐐瑰嚑涔庢€诲湪寰勫悜姝ｄ笅鏂?`window` 鍙栧埌绾?卤20% 鍛ㄩ暱宸茶繙瓒呴渶瑕?鍙妸
-    /// 澶嶆潅搴︿粠 O(NI路NJ虏) 闄嶅埌 O(NI路NJ路window)銆?    fn build_wall_distance(&mut self) {
+    /// 每个单元中心到壁面的最近距离。
+    ///
+    /// 壁面即第 0 层 tau 面。只在周向 ±`window` 的范围内搜索:O 型网格上最近的
+    /// 壁面点几乎总在径向正下方,`window` 取到约 ±20% 周长已远超需要,可把
+    /// 复杂度从 O(NI·NJ²) 降到 O(NI·NJ·window)。
+    fn build_wall_distance(&mut self) {
         let nj = self.nj;
         let window = (15.max(nj / 5)).min(nj / 2) as isize;
         let wall: Vec<(f64, f64)> = (0..nj)
@@ -192,7 +215,8 @@ impl Geometry {
         }
     }
 
-    /// 鍏ㄩ儴鍗曞厓闈㈢Н涔嬪拰銆?    pub fn total_area(&self) -> f64 {
+    /// 全部单元面积之和。
+    pub fn total_area(&self) -> f64 {
         self.vol.interior().map(|(i, j)| self.vol.get(i, j)).sum()
     }
 }
@@ -202,11 +226,12 @@ mod tests {
     use super::*;
 
     fn fangdata() -> Geometry {
-        let m = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let m = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         Geometry::build(&m, 3)
     }
 
-    /// 搴﹂噺闂悎 鈥斺€?鑷敱鏉ユ祦淇濇寔鎬х殑鍏呰鍑犱綍鏉′欢銆?    #[test]
+    /// 度量闭合 —— 自由来流保持性的充要几何条件。
+    #[test]
     fn metric_closure() {
         let g = fangdata();
         let scale = (0..=g.ni)
@@ -228,7 +253,7 @@ mod tests {
 
     #[test]
     fn total_area_equals_polygon_annulus() {
-        let m = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let m = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let g = Geometry::build(&m, 3);
         let shoelace = |ring: usize| -> f64 {
             0.5 * (0..m.n_theta())
@@ -272,7 +297,7 @@ mod tests {
 
     #[test]
     fn normal_magnitude_equals_edge_length() {
-        let m = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let m = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let g = Geometry::build(&m, 3);
         for i in 0..=g.ni {
             for j in 0..g.nj {
@@ -299,7 +324,7 @@ mod tests {
 
     #[test]
     fn centroid_inside_bounding_box() {
-        let m = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let m = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let g = Geometry::build(&m, 3);
         for i in 0..g.ni {
             for j in 0..g.nj {
@@ -322,4 +347,3 @@ mod tests {
         }
     }
 }
-

@@ -1,21 +1,27 @@
-﻿//! 褰撳湴鏃堕棿姝ヤ笌鍏ㄥ眬鏃堕棿姝ャ€?//!
-//! 鐢ㄩ潰骞冲潎娉曞悜浼拌鍗曞厓鐨勪袱涓柟鍚戣氨鍗婂緞:
+//! 当地时间步与全局时间步。
+//!
+//! 用面平均法向估计单元的两个方向谱半径:
 //!
 //! ```text
-//! 螖t_local = CFL路V / ( |u路A + v路B| + |u路C + v路D| + c路(|AB| + |CD|) )
+//! Δt_local = CFL·V / ( |u·A + v·B| + |u·C + v·D| + c·(|AB| + |CD|) )
 //! ```
 //!
-//! `(A,B)` 鏄崟鍏冧袱鏉?tau 闈㈡硶鍚戠殑骞冲潎銆乣(C,D)` 鏄袱鏉?n 闈㈡硶鍚戠殑骞冲潎銆?//!
-//! 鍏ㄥ眬鎺ㄨ繘鍙栨墍鏈夊崟鍏冪殑鏈€灏忓€?瀹氬父闂鐨勭ǔ鎬佽В涓?螖t 鏃犲叧,缁熶竴姝ラ暱鍙繚璇?//! 鏃堕棿绮惧害涓€鑷?銆傛眰鏈€灏忓€间笌椤哄簭鏃犲叧,鍥犳骞惰褰掔害鐨勭粨鏋滈€愪綅鍙鐜般€?//!
-//! 娉ㄦ剰 `localdt` 淇濈暀**閫愬崟鍏?*鐨勫€?[`crate::dissipation`] 鐢?`V/螖t_local`
-//! 杩戜技闈㈣氨鍗婂緞,閭ｉ噷闇€瑕佺殑鏄眬閮ㄩ噺鑰岄潪鍏ㄥ眬鏈€灏忓€笺€?
+//! `(A,B)` 是单元两条 tau 面法向的平均、`(C,D)` 是两条 n 面法向的平均。
+//!
+//! 全局推进取所有单元的最小值(定常问题的稳态解与 Δt 无关,统一步长可保证
+//! 时间精度一致)。求最小值与顺序无关,因此并行归约的结果逐位可复现。
+//!
+//! 注意 `localdt` 保留**逐单元**的值:[`crate::dissipation`] 用 `V/Δt_local`
+//! 近似面谱半径,那里需要的是局部量而非全局最小值。
+
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::config::Config;
 use crate::geometry::Geometry;
 use crate::state::Cells;
 
-/// 璁＄畻鍚勫崟鍏?`localdt`,杩斿洖鍏ㄥ眬鏈€灏忓€笺€?pub fn compute(cfg: &Config, geom: &Geometry, cells: &mut Cells) -> f64 {
+/// 计算各单元 `localdt`,返回全局最小值。
+pub fn compute(cfg: &Config, geom: &Geometry, cells: &mut Cells) -> f64 {
     let nj = geom.nj as isize;
     let cfl = cfg.simulation.cfl;
     let (tau, nrm, vol) = (&geom.tau, &geom.nrm, &geom.vol);
@@ -40,7 +46,8 @@ use crate::state::Cells;
     global_min(cells)
 }
 
-/// 骞惰姹傚叏灞€鏈€灏?`localdt`銆俙min` 婊¤冻缁撳悎寰嬩笌浜ゆ崲寰?缁撴灉涓庣嚎绋嬫暟鏃犲叧銆?fn global_min(cells: &Cells) -> f64 {
+/// 并行求全局最小 `localdt`。`min` 满足结合律与交换律,结果与线程数无关。
+fn global_min(cells: &Cells) -> f64 {
     let nj = cells.nj as isize;
     let dt = &cells.localdt;
     (0..cells.ni as isize)
@@ -56,8 +63,8 @@ mod tests {
     use crate::state::Domain;
 
     fn setup() -> (Config, Domain) {
-        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
-        let mesh = Mesh::parse(include_str!("../fangdata.txt")).unwrap();
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
+        let mesh = Mesh::parse(include_str!("../../fangdata.txt")).unwrap();
         let geom = Geometry::build(&mesh, cfg.simulation.halo);
         let mut dom = Domain::new(geom, cfg.simulation.halo);
         dom.cells.initialize(&cfg);
@@ -85,7 +92,8 @@ mod tests {
         assert_eq!(lo, dt);
     }
 
-    /// `localdt` 蹇呴』淇濈暀閫愬崟鍏冪殑鍊?鈥斺€?JST 璋卞崐寰勪緷璧栧畠銆?    #[test]
+    /// `localdt` 必须保留逐单元的值 —— JST 谱半径依赖它。
+    #[test]
     fn local_steps_are_not_flattened_to_the_global_minimum() {
         let (cfg, mut dom) = setup();
         compute(&cfg, &dom.geom, &mut dom.cells);
@@ -95,7 +103,7 @@ mod tests {
                 .localdt
                 .interior()
                 .any(|(i, j)| (dom.cells.localdt.get(i, j) - first).abs() > 1e-18),
-            "all local steps identical 鈥?localdt was overwritten"
+            "all local steps identical — localdt was overwritten"
         );
     }
 
@@ -110,7 +118,8 @@ mod tests {
 
     #[test]
     fn refining_the_mesh_shrinks_the_timestep() {
-        // CFL 鏉′欢 螖t ~ h/(|u|+c):缃戞牸鍔犲瘑涓€鍊?姝ラ暱搴斿ぇ鑷村噺鍗?        let cfg = Config::from_str(include_str!("../config.json")).unwrap();
+        // CFL 条件 Δt ~ h/(|u|+c):网格加密一倍,步长应大致减半
+        let cfg = Config::from_str(include_str!("../../config.json")).unwrap();
         let dt_of = |nj: usize| {
             let mut txt = format!("{} {}\n", 9, nj);
             for i in 0..9 {
@@ -128,7 +137,7 @@ mod tests {
             compute(&cfg, &dom.geom, &mut dom.cells)
         };
         let (a, b) = (dt_of(32), dt_of(64));
-        assert!(b < a, "timestep did not shrink: {a:e} 鈫?{b:e}");
+        assert!(b < a, "timestep did not shrink: {a:e} → {b:e}");
         assert!(b > 0.25 * a, "timestep shrank far more than expected");
     }
 
@@ -141,4 +150,3 @@ mod tests {
         }
     }
 }
-
