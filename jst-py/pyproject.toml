@@ -1,0 +1,14 @@
+[project]
+name = "jst-solver"
+version = "0.1.0"
+description = "2D JST + Spalart-Allmaras finite-volume solver on O-meshes (Python reference)"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.1",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["error::RuntimeWarning"]
