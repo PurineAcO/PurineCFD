@@ -1,3 +1,5 @@
+from __future__ import annotations   # BUGFIX: cell_class 在自身类体内被前向引用
+
 import numpy as np
 import json
 import math
@@ -32,6 +34,7 @@ cp    = gamma*cv
 Cv1 = _cfg['spalart_allmaras']['Cv1']  # 阻尼常数I,一般取值为7.1
 Pr = _cfg['spalart_allmaras']['Pr']    # 普朗特数,一般取值为0.71
 Prt = _cfg['spalart_allmaras']['Prt']  # 湍流普朗特数,一般取值为0.9
+Cv1_cubed = Cv1 ** 3                   # fv1 = χ³/(χ³+Cv1³),预先缓存 Cv1³
 sigma = _cfg['spalart_allmaras']['sigma']  # 湍流模型参数σ的倒数,一般取值为1.5
 Cb1 = _cfg['spalart_allmaras']['Cb1']  # 湍流模型参数Cb1,一般取值为0.1355
 Cb2 = _cfg['spalart_allmaras']['Cb2']  # 湍流模型参数Cb2,一般取值为0.622
@@ -58,6 +61,10 @@ cll = math.sqrt(gamma* R *T)    # 来流声速
 ull = cll*Ma*math.cos(math.radians(AOA)) # 来流x方向速度
 vll = cll*Ma*math.sin(math.radians(AOA)) # 来流y方向速度
 rholl = P/(R*T)                 # 来流密度
+mull  = mu0 * (T/T0)**1.5 * (T0+Ts)/(T+Ts)  # 来流分子粘度(Sutherland)
+# 来流湍流工作变量 ν̃∞.与 initialize.py 的场初始化保持一致(0.1·ν∞),
+# BUGFIX: 原 boundary.riemann 在入流处强制 miubl=0,会使湍流模型在整个流场退化.
+miublll = 0.1 * mull / rholl
 
 # Tll = T/(1+(gamma-1)/2*Ma**2)    # 来流总温
 # Pll = P*(Tll/T)**(gamma/(gamma-1))# 来流总压
@@ -73,9 +80,11 @@ rholl = P/(R*T)                 # 来流密度
 # 求解器设置
 CFL   = _cfg['simulation']['CFL']
 IM    = _cfg['simulation']['IM']    # ghost cell layers.
-RK    = (0,0.25,1/6,0.375,0.5,1)      # Runge-Kutta params
-iteration = 10000                   # max iteration
-targetres = 1e-10                   # target residual
+RK    = (0,0.25,1/6,0.375,0.5,1)      # Runge-Kutta params (5 stages: RK[1..5])
+RK_STAGES = 5                         # BUGFIX: 原求解器只推进 4 级,丢掉了 RK[5]=1
+_solver = _cfg.get('solver', {})
+iteration = _solver.get('iteration', 10000)   # max iteration
+targetres = _solver.get('targetres', 1e-10)   # target residual
 
 # area for the global variables
 i_total = 0
@@ -91,6 +100,24 @@ totaltime = 0.0
 
 # output file
 outputfile = "output.txt"
+
+
+def reset_state():
+    """清空全部模块级全局状态,使同一进程内可以连续跑多个算例(测试需要)."""
+    global i_total, j_total, meshcnt, totaltime
+    global NodeList, CellList, FaceList_n, Facelist_tau
+    global shockwave_tau, shockwave_n, density_table
+    i_total = 0
+    j_total = 0
+    meshcnt = 0
+    totaltime = 0.0
+    NodeList = [[]]
+    CellList = [[]]
+    FaceList_n = [[]]
+    Facelist_tau = [[]]
+    shockwave_tau = None
+    shockwave_n = None
+    density_table = None
 
 #area for the class definition
 class node_class:
@@ -156,13 +183,18 @@ class cell_class:
 
     def form_physic_vars(self):
         """根据守恒量还原物理量"""
-        self.rho = self.FU[1]
-        if self.rho <= 1e-15: print("rho is 0 at face",self.index); exit(6)
-        self.u = self.FU[2] / self.rho
-        self.v = self.FU[3] / self.rho
-        self.miubl = self.FU[5] / self.rho
-        self.E = self.FU[4]/ self.rho
-        self.p = (gamma-1)*(self.FU[4]-self.rho*(self.u**2+self.v**2)*0.5)
+        # BUGFIX: 原实现引用 self.FU —— cell_class 根本没有该属性(那是 face_class 的),
+        #         任何一次 RK 推进后调用都会 AttributeError.正确的守恒量是 self.U.
+        self.rho = self.U[1]
+        if self.rho <= 1e-15:
+            raise FloatingPointError(f"non-positive density {self.rho:.3e} at cell {self.index}")
+        self.u = self.U[2] / self.rho
+        self.v = self.U[3] / self.rho
+        self.miubl = self.U[5] / self.rho
+        self.E = self.U[4] / self.rho
+        self.p = (gamma-1)*(self.U[4]-self.rho*(self.u**2+self.v**2)*0.5)
+        if self.p <= 1e-15:
+            raise FloatingPointError(f"non-positive pressure {self.p:.3e} at cell {self.index}")
         self.H = self.E+self.p/self.rho
         self.T = self.p/(R*self.rho)
         self.c = math.sqrt(R*gamma*self.T)
@@ -170,10 +202,11 @@ class cell_class:
 
     def copy_grad(self,src:cell_class,ifu=True,ifv=True,ifT=True,ifmiubl=True):
         """将 `src` 的梯度复制到 `self`, 可选择复制 ugrad, vgrad, Tgrad, miublgrad"""
-        self.ugrad = src.ugrad if ifu else np.zeros(3)
-        self.vgrad = src.vgrad if ifv else np.zeros(3)
-        self.Tgrad = src.Tgrad if ifT else np.zeros(3)
-        self.miublgrad = src.miublgrad if ifmiubl else np.zeros(3)
+        # BUGFIX: 使用 .copy() 而非直接绑定,避免 ghost 与内部单元共享同一 ndarray
+        self.ugrad = src.ugrad.copy() if ifu else np.zeros(3)
+        self.vgrad = src.vgrad.copy() if ifv else np.zeros(3)
+        self.Tgrad = src.Tgrad.copy() if ifT else np.zeros(3)
+        self.miublgrad = src.miublgrad.copy() if ifmiubl else np.zeros(3)
 
 class face_class:
     def __init__(self,index):
@@ -212,7 +245,8 @@ class face_class:
     def form_flux(self):
         """根据基本物理量计算通量项"""
         self.rho = self.FU[1]
-        if self.rho <= 1e-15: print("rho is 0 at face",self.index); exit(6)
+        if self.rho <= 1e-15:
+            raise FloatingPointError(f"non-positive density {self.rho:.3e} at face {self.index}")
         self.u = self.FU[2] / self.rho
         self.v = self.FU[3] / self.rho
         self.miubl = self.FU[5] / self.rho

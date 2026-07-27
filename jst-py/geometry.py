@@ -111,8 +111,10 @@ def calc_most_near_walldistance():
     优化: 仅搜索周向 `w=max(5,j_total//20)` 范围内的壁面, 而非全局遍历.
     """
     # window: ~20% of circumference, at least 15
-    window = max(15, cc.j_total // 5)
+    # BUGFIX: 窗口未按周向总数封顶,j_total 较小时 (j-1+dk) % j_total 会反复
+    #         扫描同一批面,做无谓的重复计算.封顶到半周即可覆盖全部壁面.
     j_total = cc.j_total
+    window = min(max(15, j_total // 5), j_total // 2)
     wall_faces = cc.Facelist_tau[1]  # first ring = wall
 
     for i in range(1, cc.i_total):

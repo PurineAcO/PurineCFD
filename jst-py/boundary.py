@@ -24,10 +24,16 @@ def turbence_nu_calc(j):
     for delta in range(1,4):
         LS[delta]=np.linalg.norm(np.array([cell_in[delta-1].x-face.mx,
                                            cell_in[delta-1].y-face.my]))
-    prembl = (LS[2]*LS[3]/((LS[1]-LS[2])*(LS[1]-LS[3]))*cell_in[0].miubl +
-            LS[1]*LS[3]/((LS[2]-LS[1])*(LS[2]-LS[3]))*cell_in[1].miubl +
-            LS[1]*LS[2]/((LS[3]-LS[2])*(LS[3]-LS[1]))*cell_in[2].miubl)
-    
+    # BUGFIX: 三点 Lagrange 外插的分母在两单元中心到面距离相等(退化网格)时为 0.
+    #         此时退化为最近单元的一阶外插.
+    d12, d13, d23 = LS[1]-LS[2], LS[1]-LS[3], LS[2]-LS[3]
+    if abs(d12) < 1e-14 or abs(d13) < 1e-14 or abs(d23) < 1e-14:
+        return max(cell_in[0].miubl, 1e-10)
+
+    prembl = (LS[2]*LS[3]/(d12*d13)*cell_in[0].miubl +
+            LS[1]*LS[3]/(-d12*d23)*cell_in[1].miubl +
+            LS[1]*LS[2]/(d23*(-d13))*cell_in[2].miubl)
+
     return prembl if prembl>1e-10 else 1e-10
 
 def riemann(j):
@@ -51,14 +57,18 @@ def riemann(j):
         c_face = (cc.gamma-1)/4*(R_in-R_ll)
         if vel_n_face <= 0:
             form_vars(face,c_face,vel_n_face,vel_tau_ll,edge_length)
-            face.miubl = 0
+            # BUGFIX: 入流处原先置 ν̃ = 0.S-A 的远场边界应给定来流工作变量,
+            #         置零会让湍流粘度被持续冲刷掉,整个流场退化为层流.
+            face.miubl = cc.miublll
         else:
             form_vars(face,c_face,vel_n_face,vel_tau_in,edge_length)
             face.miubl = turbence_nu_calc(j)
     else:
         if vel_n_ll<=0:
             form_vars(face,cc.cll,vel_n_ll,vel_tau_ll,edge_length)
-            face.miubl = 0
+            # BUGFIX: 入流处原先置 ν̃ = 0.S-A 的远场边界应给定来流工作变量,
+            #         置零会让湍流粘度被持续冲刷掉,整个流场退化为层流.
+            face.miubl = cc.miublll
         else:
             form_vars(face,cell_in.c,vel_n_in,vel_tau_in,edge_length)
             face.miubl = turbence_nu_calc(j)

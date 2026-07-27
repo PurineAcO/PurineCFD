@@ -18,7 +18,10 @@ def initialization(T0=cc.T,AOA=cc.AOA,Ma=cc.Ma,P0=cc.P):
             cc.CellList[i][j].v = cc.CellList[i][j].c * Ma * math.sin(math.radians(AOA))
             cc.CellList[i][j].E = cc.CellList[i][j].p/(cc.CellList[i][j].rho*(cc.gamma-1))+(cc.CellList[i][j].u**2+cc.CellList[i][j].v**2)/2
             cc.CellList[i][j].H = cc.CellList[i][j].E + cc.CellList[i][j].p/cc.CellList[i][j].rho
-            cc.CellList[i][j].miu = cc.mu0 * (cc.CellList[i][j].T/T0)**1.5 * (T0+cc.Ts)/(cc.CellList[i][j].T+cc.Ts)
+            # BUGFIX: Sutherland 公式的参考温度是 cc.T0(288.16 K),而非被同名
+            #         形参 T0(来流静温)遮蔽的那个值 —— 原式在 T≠cc.T0 时给出
+            #         错误的分子粘度,进而污染初始 ν̃.
+            cc.CellList[i][j].miu = cc.mu0 * (cc.CellList[i][j].T/cc.T0)**1.5 * (cc.T0+cc.Ts)/(cc.CellList[i][j].T+cc.Ts)
             cc.CellList[i][j].miubl = cc.CellList[i][j].miu *0.1/cc.CellList[i][j].rho
 
 def initialization_main():

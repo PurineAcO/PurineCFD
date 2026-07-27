@@ -41,7 +41,8 @@ def min_timestep():
         for i in range(1, cc.i_total):
             cc.CellList[i][j].dt = mintime
 
-    cc.totaltime += mintime
+    # BUGFIX: totaltime 的累加移交给 solvemain.RK —— 该函数在每个 RK 级都会
+    #         被调用(用于谱半径),在此处累加会把物理时间放大 RK_STAGES 倍.
     return mintime
 
 def riemann_main():
@@ -50,126 +51,97 @@ def riemann_main():
         bd.riemann(j)
 
 def imagination_mesh_create():
-    """设立虚拟网格"""
-    # 设置壁面虚拟网格,使用镜像法
+    """一次性分配虚拟(ghost)网格,随后每级只调用 `imagination_mesh_update`.
+
+    索引约定(IM=3 时)——记物理单元 i = 1 … i_total-1, j = 1 … j_total:
+
+    * 壁面 ghost   `CellList[i_total + im - 1]`      ← 镜像 `CellList[im]`
+    * 远场 ghost   `CellList[i_total + IM + im - 1]` ← 远场边界面外推
+    * 周向左 ghost `CellList[i][j_total + im]`       ← `CellList[i][j_total-im+1]`
+    * 周向右 ghost `CellList[i][j_total + IM + im]`  ← `CellList[i][im]`
+
+    BUGFIX: 原代码在 `RK` 内以 `if step==1` 调用本函数,而 `step==1` 会命中
+    每一个 RK 级 —— ghost 行被重复 append 数次,`CellList` 结构被破坏.
+    现改为在时间推进开始前调用一次.
+    """
+    # 壁面虚拟网格(镜像法)
     for im in range(1, cc.IM + 1):
         ghost_row = [[]]                       # j=0 占位
         for j in range(1, cc.j_total + 1):
-            gcell : cc.cell_class = cc.cell_class((cc.i_total + im - 1, j))
-
-            # 标量: 从壁面直接复制
-            gcell.rho = cc.CellList[1][j].rho
-            gcell.p   = cc.CellList[1][j].p
-            gcell.T   = cc.CellList[1][j].T
-            gcell.E   = cc.CellList[1][j].E
-            gcell.H   = cc.CellList[1][j].H
-            gcell.c   = cc.CellList[1][j].c
-
-            # 速度 / 湍流粘度: 取对应内层的相反数 (镜像反射)
-            gcell.u     = -cc.CellList[im][j].u
-            gcell.v     = -cc.CellList[im][j].v
-            gcell.miubl = -cc.CellList[im][j].miubl
-            gcell.ma = (math.sqrt(cc.CellList[im][j].u ** 2 +
-                                    cc.CellList[im][j].v ** 2) / cc.CellList[1][j].c)
-            gcell.formvars()
-            ghost_row.append(gcell)
+            ghost_row.append(cc.cell_class((cc.i_total + im - 1, j)))
         cc.CellList.append(ghost_row)
 
-    # 设置远场虚拟网格,有关数据从边界条件计算!
+    # 远场虚拟网格
     for im in range(1, cc.IM + 1):
-        ghost_row = [[]]             # j=0 占位
+        ghost_row = [[]]                       # j=0 占位
         for j in range(1, cc.j_total + 1):
-            face : cc.face_class = cc.Facelist_tau[cc.i_total][j]
-            gcell = cc.cell_class((cc.i_total + im - 1, j))
-            gcell.rho = face.rho
-            gcell.E = face.E
-            gcell.p = face.p
-            gcell.T = face.T
-            # gcell.H
-            gcell.u = face.u
-            gcell.v = face.v
-            gcell.ma = (face.u**2+face.v**2)/(cc.gamma*cc.R*face.T)
-            gcell.miubl = face.miubl
-            gcell.formvars()
-            ghost_row.append(gcell)
+            # BUGFIX: 原索引写作 (i_total+im-1, j),与壁面 ghost 完全重名
+            ghost_row.append(cc.cell_class((cc.i_total + cc.IM + im - 1, j)))
         cc.CellList.append(ghost_row)
 
-    # 设置 O 型网格切割线两侧的周期假想网格 (j 方向周期边界)
-    # 左侧 ghost ← 右侧物理端 (j = j_total, j_total-1, ...)
-    # 右侧 ghost ← 左侧物理端 (j = 1, 2, ...)
+    # O 型网格切割线两侧的周期虚拟网格 (j 方向周期边界)
     for i in range(1, cc.i_total):
-        # ── 左侧假想网格 ──
-        for im in range(1, cc.IM + 1):
-            gcell = cc.cell_class((i, cc.j_total + im))
-            gcell.copy_flow_fields(cc.CellList[i][cc.j_total - im + 1])
-            gcell.formvars()
-            cc.CellList[i].append(gcell)
+        for im in range(1, cc.IM + 1):          # 左侧
+            cc.CellList[i].append(cc.cell_class((i, cc.j_total + im)))
+        for im in range(1, cc.IM + 1):          # 右侧
+            cc.CellList[i].append(cc.cell_class((i, cc.j_total + cc.IM + im)))
 
-        # ── 右侧假想网格 ──
-        for im in range(1, cc.IM + 1):
-            gcell = cc.cell_class((i, cc.j_total + cc.IM + im))
-            gcell.copy_flow_fields(cc.CellList[i][im])
-            gcell.formvars()
-            cc.CellList[i].append(gcell)
+    imagination_mesh_update()
+
 
 def imagination_mesh_update():
-    """更新虚拟网格"""
-    # 设置壁面虚拟网格,使用镜像法
+    """把物理单元/边界面的状态同步到虚拟网格上."""
+    # ── 壁面虚拟网格:无滑移固壁,速度与湍流量反号镜像 ──────────────
     for im in range(1, cc.IM + 1):
-        ghost_row = [[]]                       # j=0 占位
         for j in range(1, cc.j_total + 1):
             gcell : cc.cell_class = cc.CellList[cc.i_total + im - 1][j]
+            # BUGFIX: 标量原先恒取第一层单元 CellList[1][j],与速度所用的
+            #         第 im 层不一致,镜像不自洽.应统一取 CellList[im][j].
+            inner : cc.cell_class = cc.CellList[im][j]
+            gcell.rho = inner.rho
+            gcell.p   = inner.p
+            gcell.T   = inner.T
+            gcell.E   = inner.E
+            gcell.H   = inner.H
+            gcell.c   = inner.c
 
-            # 标量: 从壁面直接复制
-            gcell.rho = cc.CellList[1][j].rho
-            gcell.p   = cc.CellList[1][j].p
-            gcell.T   = cc.CellList[1][j].T
-            gcell.E   = cc.CellList[1][j].E
-            gcell.H   = cc.CellList[1][j].H
-            gcell.c   = cc.CellList[1][j].c
-
-            # 速度 / 湍流粘度: 取对应内层的相反数 (镜像反射)
-            gcell.u     = -cc.CellList[im][j].u
-            gcell.v     = -cc.CellList[im][j].v
-            gcell.miubl = -cc.CellList[im][j].miubl
-            gcell.ma = (math.sqrt(cc.CellList[im][j].u ** 2 +
-                                    cc.CellList[im][j].v ** 2) / cc.CellList[1][j].c)
+            gcell.u     = -inner.u
+            gcell.v     = -inner.v
+            gcell.miubl = -inner.miubl
+            gcell.ma    = math.sqrt(inner.u**2 + inner.v**2) / inner.c
             gcell.formvars()
 
-    # 设置远场虚拟网格,有关数据从边界条件计算!
+    # ── 远场虚拟网格:由黎曼不变量边界面外推 ──────────────────────
     for im in range(1, cc.IM + 1):
-        ghost_row = [[]]             # j=0 占位
         for j in range(1, cc.j_total + 1):
             face : cc.face_class = cc.Facelist_tau[cc.i_total][j]
-            # gcell = cc.cell_class((cc.i_total + im - 1, j))
-            gcell :cc.cell_class = cc.CellList[cc.i_total-1+cc.IM+im][j]
+            gcell : cc.cell_class = cc.CellList[cc.i_total + cc.IM + im - 1][j]
             gcell.rho = face.rho
             gcell.E = face.E
             gcell.p = face.p
             gcell.T = face.T
-            # gcell.H
+            gcell.H = face.E + face.p / face.rho
             gcell.u = face.u
             gcell.v = face.v
-            gcell.ma = (face.u**2+face.v**2)/(cc.gamma*cc.R*face.T)
+            gcell.c = math.sqrt(cc.gamma * cc.R * face.T)
+            # BUGFIX: 原式漏掉开方,算出的是 Ma² 而非 Ma
+            gcell.ma = math.sqrt(face.u**2 + face.v**2) / gcell.c
             gcell.miubl = face.miubl
             gcell.formvars()
 
-    # 设置 O 型网格切割线两侧的周期假想网格 (j 方向周期边界)
-    # 左侧 ghost ← 右侧物理端 (j = j_total, j_total-1, ...)
-    # 右侧 ghost ← 左侧物理端 (j = 1, 2, ...)
+    # ── 周期虚拟网格 ────────────────────────────────────────────
     for i in range(1, cc.i_total):
-        # ── 左侧假想网格 ──
-        for im in range(1, cc.IM + 1):
-            gcell :cc.cell_class = cc.CellList[i][cc.j_total+im]
+        for im in range(1, cc.IM + 1):          # 左侧 ← 高 j 端
+            gcell : cc.cell_class = cc.CellList[i][cc.j_total + im]
             gcell.copy_flow_fields(cc.CellList[i][cc.j_total - im + 1])
             gcell.formvars()
 
-        # ── 右侧假想网格 ──
-        for im in range(1, cc.IM + 1):
-            gcell:cc.cell_class = cc.CellList[i][cc.j_total+cc.IM+im]
+        for im in range(1, cc.IM + 1):          # 右侧 ← 低 j 端
+            gcell : cc.cell_class = cc.CellList[i][cc.j_total + cc.IM + im]
             gcell.copy_flow_fields(cc.CellList[i][im])
             gcell.formvars()
-            cc.CellList[i].append(gcell)
+            # BUGFIX: 原代码此处还有一句 `cc.CellList[i].append(gcell)`,
+            #         每个 RK 级都会让该行无限增长(内存泄漏 + 索引错位).
 
 def calc_convect():
     """邢程对流项"""
@@ -183,15 +155,16 @@ def calc_convect():
         face : cc.face_class = cc.Facelist_tau[cc.i_total][j]
         face.form_face_conserved_1stbounded(cc.CellList[cc.i_total-1][j], cc.CellList[cc.i_total+cc.IM][j])
 
-    # 处理左周期边界处的面上守恒量,face_n
-    for i in range(1,cc.i_total):
-        face : cc.face_class = cc.FaceList_n[i][cc.j_total]
-        face.form_face_conserved_1stbounded(cc.CellList[i][cc.j_total], cc.CellList[i][cc.j_total+1])
-        
-    # 处理右周期边界处的面上守恒量,face_n
+    # 处理周期切割线处的面上守恒量,face_n
+    # FaceList_n[i][j] 分隔单元 (i, j-1) 与 (i, j);j==1 时左邻为 (i, j_total),
+    # 其代理为左侧 ghost CellList[i][j_total+1].
+    # BUGFIX: 原代码用 CellList[i][j_total+IM+1](右侧 ghost,是 CellList[i][1]
+    #         自身的副本),等于把单元 1 与它自己做平均,周期边界完全失效.
+    #         另一处对 FaceList_n[i][j_total] 的特判同样取错了单元,好在会被
+    #         下方通用循环覆写,这里一并删去.
     for i in range(1,cc.i_total):
         face : cc.face_class = cc.FaceList_n[i][1]
-        face.form_face_conserved_1stbounded(cc.CellList[i][1], cc.CellList[i][cc.j_total+cc.IM+1])
+        face.form_face_conserved_1stbounded(cc.CellList[i][1], cc.CellList[i][cc.j_total+1])
 
     # 处理正常地方的面上守恒量,时刻提醒自己face_tau是(i_total,j_total),face_n是(i_total-1,j_total)
     for i in range(2,cc.i_total): # (1,j)和(i_total,j)的face通量已经处理好了
@@ -322,9 +295,12 @@ def calc_diffusion():
     for i in range(1,cc.i_total):
         for j in range(1,cc.j_total+1):
             face : cc.face_class = cc.FaceList_n[i][j]
-            # 处理特殊情况
+            # 处理特殊情况:FaceList_n[i][j] 分隔 (i,j-1) 与 (i,j)
             j_left = cc.j_total+1 if j==1 else j-1
-            j_right = cc.j_total+cc.IM+1 if j==cc.j_total else j
+            # BUGFIX: 原为 `j_total+IM+1 if j==j_total else j`.j==j_total 的面
+            #         分隔的是单元 j_total-1 与 j_total,并不涉及右侧 ghost;
+            #         取右 ghost(单元 1 的副本)会把切割线对面的状态错误引入.
+            j_right = j
             # 找到邻接网格
             cell_left : cc.cell_class = cc.CellList[i][j_left]
             cell_right : cc.cell_class = cc.CellList[i][j_right]
@@ -399,12 +375,15 @@ def calc_dissipation():
         for j in range(4,cc.j_total+2):
             hs.shockwave_catcher((i,j),"n",cc.CellList[i][j-3],
                                 cc.CellList[i][j-2],cc.CellList[i][j-1])
+        # BUGFIX: 以下三次调用原本全部写成索引 (i, j_total+2) —— 后两次覆盖了
+        #         第一次的结果,而真正需要的 shockwave_n[i][j_total+3] 从未被
+        #         赋值(恒为 0),使切割线附近的激波探测器失效.
+        #         第三次调用(索引 j_total+4)超出 adaptive_dissipation 的取用
+        #         范围也超出数组边界,予以删除.
         hs.shockwave_catcher((i,cc.j_total+2),"n",cc.CellList[i][cc.j_total-1],
                             cc.CellList[i][cc.j_total],cc.CellList[i][cc.j_total+4])
-        hs.shockwave_catcher((i,cc.j_total+2),"n",cc.CellList[i][cc.j_total],
+        hs.shockwave_catcher((i,cc.j_total+3),"n",cc.CellList[i][cc.j_total],
                             cc.CellList[i][cc.j_total+4],cc.CellList[i][cc.j_total+5])
-        hs.shockwave_catcher((i,cc.j_total+2),"n",cc.CellList[i][cc.j_total+4],
-                            cc.CellList[i][cc.j_total+5],cc.CellList[i][cc.j_total+6])
 
     # n边界上的阻尼系数
     for i in range(1,cc.i_total):

@@ -95,8 +95,9 @@ def mesh_visualization(savepath=None, show_centers=True, show_tau=True, show_n=T
                 mx = (cc.NodeList[i][j].x + cc.NodeList[i+1][j].x) * 0.5
                 my = (cc.NodeList[i][j].y + cc.NodeList[i+1][j].y) * 0.5
                 nx.append(mx); ny.append(my)
-                nni.append(cc.FaceList_n[j][i].nx)
-                nnj.append(cc.FaceList_n[j][i].ny)
+                # BUGFIX: 索引颠倒,应为 [i][j](i 是环层,j 是周向)
+                nni.append(cc.FaceList_n[i][j].nx)
+                nnj.append(cc.FaceList_n[i][j].ny)
         ax.quiver(nx, ny, nni, nnj, color='darkorange', scale=1/arrow_scale,
                   scale_units='xy', width=arrow_width, zorder=6, label='face_n normal')
 
